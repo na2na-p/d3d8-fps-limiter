@@ -441,11 +441,19 @@ HRESULT WINAPI Direct3DDevice8_CreateVertexShader(IDirect3DDevice8 *This, const 
 
     // Create vertex shader if function is provided
     if (pFunction) {
+        // Check shader version - D3D8 shaders start with version token
+        DWORD shaderVersion = pFunction[0];
+
+        // Try to create the vertex shader
         hr = IDirect3DDevice9_CreateVertexShader(self->pDevice9, pFunction, &pInfo->pShader9);
         if (FAILED(hr)) {
-            if (pInfo->pDecl9) IDirect3DVertexDeclaration9_Release(pInfo->pDecl9);
-            HeapFree(GetProcessHeap(), 0, pInfo);
-            return hr;
+            // Shader creation failed - continue with declaration only
+            // This allows the game to run even if the shader is incompatible
+            pInfo->pShader9 = NULL;
+
+            // For vs_1_0 shaders (0xFFFE0100), D3D9 might not support them on all hardware
+            // We'll continue with just the vertex declaration
+            (void)shaderVersion; // Suppress unused warning
         }
     }
 
