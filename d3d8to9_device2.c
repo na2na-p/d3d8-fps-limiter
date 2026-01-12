@@ -110,25 +110,25 @@ static HRESULT WINAPI Direct3DDevice8_GetTextureStageState(IDirect3DDevice8 *Thi
 
     // D3D8 texture stage states that map to D3D9 sampler states
     switch (Type) {
-        case D3DTSS_ADDRESSU:
+        case D3DTSS8_ADDRESSU:
             return IDirect3DDevice9_GetSamplerState(self->pDevice9, Stage, D3DSAMP_ADDRESSU, pValue);
-        case D3DTSS_ADDRESSV:
+        case D3DTSS8_ADDRESSV:
             return IDirect3DDevice9_GetSamplerState(self->pDevice9, Stage, D3DSAMP_ADDRESSV, pValue);
-        case D3DTSS_ADDRESSW:
+        case D3DTSS8_ADDRESSW:
             return IDirect3DDevice9_GetSamplerState(self->pDevice9, Stage, D3DSAMP_ADDRESSW, pValue);
-        case D3DTSS_BORDERCOLOR:
+        case D3DTSS8_BORDERCOLOR:
             return IDirect3DDevice9_GetSamplerState(self->pDevice9, Stage, D3DSAMP_BORDERCOLOR, pValue);
-        case D3DTSS_MAGFILTER:
+        case D3DTSS8_MAGFILTER:
             return IDirect3DDevice9_GetSamplerState(self->pDevice9, Stage, D3DSAMP_MAGFILTER, pValue);
-        case D3DTSS_MINFILTER:
+        case D3DTSS8_MINFILTER:
             return IDirect3DDevice9_GetSamplerState(self->pDevice9, Stage, D3DSAMP_MINFILTER, pValue);
-        case D3DTSS_MIPFILTER:
+        case D3DTSS8_MIPFILTER:
             return IDirect3DDevice9_GetSamplerState(self->pDevice9, Stage, D3DSAMP_MIPFILTER, pValue);
-        case D3DTSS_MIPMAPLODBIAS:
+        case D3DTSS8_MIPMAPLODBIAS:
             return IDirect3DDevice9_GetSamplerState(self->pDevice9, Stage, D3DSAMP_MIPMAPLODBIAS, pValue);
-        case D3DTSS_MAXMIPLEVEL:
+        case D3DTSS8_MAXMIPLEVEL:
             return IDirect3DDevice9_GetSamplerState(self->pDevice9, Stage, D3DSAMP_MAXMIPLEVEL, pValue);
-        case D3DTSS_MAXANISOTROPY:
+        case D3DTSS8_MAXANISOTROPY:
             return IDirect3DDevice9_GetSamplerState(self->pDevice9, Stage, D3DSAMP_MAXANISOTROPY, pValue);
         default:
             return IDirect3DDevice9_GetTextureStageState(self->pDevice9, Stage, Type, pValue);
@@ -140,25 +140,25 @@ static HRESULT WINAPI Direct3DDevice8_SetTextureStageState(IDirect3DDevice8 *Thi
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
 
     switch (Type) {
-        case D3DTSS_ADDRESSU:
+        case D3DTSS8_ADDRESSU:
             return IDirect3DDevice9_SetSamplerState(self->pDevice9, Stage, D3DSAMP_ADDRESSU, Value);
-        case D3DTSS_ADDRESSV:
+        case D3DTSS8_ADDRESSV:
             return IDirect3DDevice9_SetSamplerState(self->pDevice9, Stage, D3DSAMP_ADDRESSV, Value);
-        case D3DTSS_ADDRESSW:
+        case D3DTSS8_ADDRESSW:
             return IDirect3DDevice9_SetSamplerState(self->pDevice9, Stage, D3DSAMP_ADDRESSW, Value);
-        case D3DTSS_BORDERCOLOR:
+        case D3DTSS8_BORDERCOLOR:
             return IDirect3DDevice9_SetSamplerState(self->pDevice9, Stage, D3DSAMP_BORDERCOLOR, Value);
-        case D3DTSS_MAGFILTER:
+        case D3DTSS8_MAGFILTER:
             return IDirect3DDevice9_SetSamplerState(self->pDevice9, Stage, D3DSAMP_MAGFILTER, Value);
-        case D3DTSS_MINFILTER:
+        case D3DTSS8_MINFILTER:
             return IDirect3DDevice9_SetSamplerState(self->pDevice9, Stage, D3DSAMP_MINFILTER, Value);
-        case D3DTSS_MIPFILTER:
+        case D3DTSS8_MIPFILTER:
             return IDirect3DDevice9_SetSamplerState(self->pDevice9, Stage, D3DSAMP_MIPFILTER, Value);
-        case D3DTSS_MIPMAPLODBIAS:
+        case D3DTSS8_MIPMAPLODBIAS:
             return IDirect3DDevice9_SetSamplerState(self->pDevice9, Stage, D3DSAMP_MIPMAPLODBIAS, Value);
-        case D3DTSS_MAXMIPLEVEL:
+        case D3DTSS8_MAXMIPLEVEL:
             return IDirect3DDevice9_SetSamplerState(self->pDevice9, Stage, D3DSAMP_MAXMIPLEVEL, Value);
-        case D3DTSS_MAXANISOTROPY:
+        case D3DTSS8_MAXANISOTROPY:
             return IDirect3DDevice9_SetSamplerState(self->pDevice9, Stage, D3DSAMP_MAXANISOTROPY, Value);
         default:
             return IDirect3DDevice9_SetTextureStageState(self->pDevice9, Stage, Type, Value);

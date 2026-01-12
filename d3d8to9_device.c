@@ -543,15 +543,15 @@ static HRESULT WINAPI Direct3DDevice8_SetRenderState(IDirect3DDevice8 *This, D3D
 
     // Handle D3D8-only render states
     switch (State) {
-        case D3DRS_ZBIAS:
+        case D3DRS8_ZBIAS:
             // Convert ZBIAS to DEPTHBIAS
             {
                 float bias = (float)Value * -0.000005f;
                 return IDirect3DDevice9_SetRenderState(self->pDevice9, D3DRS_DEPTHBIAS, *(DWORD *)&bias);
             }
-        case D3DRS_SOFTWAREVERTEXPROCESSING:
+        case D3DRS8_SOFTWAREVERTEXPROCESSING:
             return IDirect3DDevice9_SetSoftwareVertexProcessing(self->pDevice9, Value);
-        case D3DRS_PATCHSEGMENTS:
+        case D3DRS8_PATCHSEGMENTS:
             // Not supported in D3D9
             return D3D_OK;
         default:
@@ -564,7 +564,7 @@ static HRESULT WINAPI Direct3DDevice8_GetRenderState(IDirect3DDevice8 *This, D3D
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
 
     switch (State) {
-        case D3DRS_ZBIAS:
+        case D3DRS8_ZBIAS:
             {
                 DWORD bias;
                 HRESULT hr = IDirect3DDevice9_GetRenderState(self->pDevice9, D3DRS_DEPTHBIAS, &bias);
@@ -574,7 +574,7 @@ static HRESULT WINAPI Direct3DDevice8_GetRenderState(IDirect3DDevice8 *This, D3D
                 }
                 return hr;
             }
-        case D3DRS_SOFTWAREVERTEXPROCESSING:
+        case D3DRS8_SOFTWAREVERTEXPROCESSING:
             if (pValue) {
                 *pValue = IDirect3DDevice9_GetSoftwareVertexProcessing(self->pDevice9);
             }

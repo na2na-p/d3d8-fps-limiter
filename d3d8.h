@@ -1,12 +1,12 @@
 /**
  * D3D8 to D3D9 Converter
  * D3D8 Interface Definitions
+ *
+ * Note: d3d9.h and d3d8types.h must be included before this file
  */
 
 #ifndef D3D8_H
 #define D3D8_H
-
-#include "d3d8types.h"
 
 // ============================================================================
 // Forward Declarations

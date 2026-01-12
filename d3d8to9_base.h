@@ -10,7 +10,8 @@
 #define COBJMACROS
 #include <windows.h>
 #include <d3d9.h>
-#include "d3d8.h"
+#include "d3d8types.h"  // D3D8-specific types (must come after d3d9.h)
+#include "d3d8.h"       // D3D8 interfaces
 
 // ============================================================================
 // Wrapper Structure Forward Declarations
