@@ -151,8 +151,12 @@ static void DoFrameLimit_HighRes(void) {
 
         g_nextFrameTime += g_targetFrameTicks;
     } else {
-        // 遅延時は現在時刻から1フレーム先にリセット
+        // 遅延時も1フレーム分待機してから次へ
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+        do {
+            _mm_pause();
+            QueryPerformanceCounter(&now);
+        } while (now.QuadPart < g_nextFrameTime);
     }
 }
 
@@ -174,8 +178,12 @@ static void DoFrameLimit_Fallback(void) {
 
         g_nextFrameTime += g_targetFrameTicks;
     } else {
-        // 遅延時は現在時刻から1フレーム先にリセット
+        // 遅延時も1フレーム分待機してから次へ
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+        do {
+            _mm_pause();
+            QueryPerformanceCounter(&now);
+        } while (now.QuadPart < g_nextFrameTime);
     }
 }
 
