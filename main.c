@@ -148,12 +148,10 @@ static void DoFrameLimit_HighRes(void) {
             _mm_pause();
             QueryPerformanceCounter(&now);
         } while (now.QuadPart < g_nextFrameTime);
-    }
 
-    g_nextFrameTime += g_targetFrameTicks;
-
-    // 遅延時は現在時刻から1フレーム先にリセット（複数フレームスキップを防止）
-    if (g_nextFrameTime <= now.QuadPart) {
+        g_nextFrameTime += g_targetFrameTicks;
+    } else {
+        // 遅延時は現在時刻から1フレーム先にリセット
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
     }
 }
@@ -173,12 +171,10 @@ static void DoFrameLimit_Fallback(void) {
             _mm_pause();
             QueryPerformanceCounter(&now);
         } while (now.QuadPart < g_nextFrameTime);
-    }
 
-    g_nextFrameTime += g_targetFrameTicks;
-
-    // 遅延時は現在時刻から1フレーム先にリセット（複数フレームスキップを防止）
-    if (g_nextFrameTime <= now.QuadPart) {
+        g_nextFrameTime += g_targetFrameTicks;
+    } else {
+        // 遅延時は現在時刻から1フレーム先にリセット
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
     }
 }
