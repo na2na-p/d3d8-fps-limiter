@@ -54,7 +54,8 @@ static PFN_Direct3DCreate8 Real_Direct3DCreate8 = NULL;
 // Frame limiter state
 static LARGE_INTEGER g_freq;
 static LONGLONG g_nextFrameTime;
-static double g_targetFrameTime;
+static LONGLONG g_targetFrameTicks = 0;  // Pre-calculated frame time in QPC ticks
+static LONGLONG g_catchupThreshold = 0;  // Pre-calculated catch-up threshold
 static int g_targetFPS = DEFAULT_FPS;
 static BOOL g_initialized = FALSE;
 
@@ -119,7 +120,11 @@ static void InitFrameLimiter(void) {
     LoadConfig();
 
     if (g_targetFPS > 0) {
-        g_targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
+        double targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
+        // Pre-calculate frame time in ticks (avoids conversion every frame)
+        g_targetFrameTicks = (LONGLONG)targetFrameTime;
+        // Pre-calculate catch-up threshold (used every frame)
+        g_catchupThreshold = (LONGLONG)(targetFrameTime * CATCHUP_THRESHOLD);
     }
 
     // Try high-resolution waitable timer (Windows 10 1803+)
@@ -187,12 +192,11 @@ static void DoFrameLimit_HighRes(void) {
         } while (now.QuadPart < g_nextFrameTime);
     }
 
-    // Advance to next frame
-    g_nextFrameTime += (LONGLONG)g_targetFrameTime;
+    // Advance to next frame (use pre-calculated ticks, no type conversion)
+    g_nextFrameTime += g_targetFrameTicks;
 
-    // Prevent catch-up stutter when falling behind
-    LONGLONG catchupThreshold = (LONGLONG)(g_targetFrameTime * CATCHUP_THRESHOLD);
-    if (now.QuadPart > g_nextFrameTime + catchupThreshold) {
+    // Prevent catch-up stutter when falling behind (use pre-calculated threshold)
+    if (now.QuadPart > g_nextFrameTime + g_catchupThreshold) {
         g_nextFrameTime = now.QuadPart;
     }
 }
@@ -216,12 +220,11 @@ static void DoFrameLimit_Fallback(void) {
         } while (now.QuadPart < g_nextFrameTime);
     }
 
-    // Advance to next frame
-    g_nextFrameTime += (LONGLONG)g_targetFrameTime;
+    // Advance to next frame (use pre-calculated ticks, no type conversion)
+    g_nextFrameTime += g_targetFrameTicks;
 
-    // Prevent catch-up stutter when falling behind
-    LONGLONG catchupThreshold = (LONGLONG)(g_targetFrameTime * CATCHUP_THRESHOLD);
-    if (now.QuadPart > g_nextFrameTime + catchupThreshold) {
+    // Prevent catch-up stutter when falling behind (use pre-calculated threshold)
+    if (now.QuadPart > g_nextFrameTime + g_catchupThreshold) {
         g_nextFrameTime = now.QuadPart;
     }
 }
