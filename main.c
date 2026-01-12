@@ -5,6 +5,13 @@
 
 #pragma comment(lib, "winmm.lib")
 
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+
+typedef HANDLE (WINAPI *PFN_CreateWaitableTimerExW)(
+    LPSECURITY_ATTRIBUTES, LPCWSTR, DWORD, DWORD);
+
 typedef struct IDirect3D8 { void **lpVtbl; } IDirect3D8;
 typedef struct IDirect3DDevice8 { void **lpVtbl; } IDirect3DDevice8;
 
@@ -21,6 +28,8 @@ static double g_targetFrameTime;
 static int g_targetFPS = 60;
 static BOOL g_initialized = FALSE;
 static BOOL g_timerResolutionSet = FALSE;
+static HANDLE g_hTimer = NULL;
+static BOOL g_useHighResTimer = FALSE;
 
 static PFN_Present Real_Present = NULL;
 static BYTE g_originalBytes[5];
@@ -45,10 +54,6 @@ static void LoadConfig(void) {
 
 static void InitFrameLimiter(void) {
     if (!g_initialized) {
-        if (timeBeginPeriod(1) == TIMERR_NOERROR) {
-            g_timerResolutionSet = TRUE;
-        }
-
         QueryPerformanceFrequency(&g_freq);
 
         LARGE_INTEGER now;
@@ -61,11 +66,36 @@ static void InitFrameLimiter(void) {
             g_targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
         }
 
+        // Try high-resolution waitable timer (Windows 10 1803+)
+        HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+        if (hKernel32) {
+            PFN_CreateWaitableTimerExW pCreateWaitableTimerExW =
+                (PFN_CreateWaitableTimerExW)GetProcAddress(hKernel32, "CreateWaitableTimerExW");
+            if (pCreateWaitableTimerExW) {
+                g_hTimer = pCreateWaitableTimerExW(NULL, NULL,
+                    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+                if (g_hTimer) {
+                    g_useHighResTimer = TRUE;
+                }
+            }
+        }
+
+        // Fallback: use timeBeginPeriod for Sleep accuracy
+        if (!g_useHighResTimer) {
+            if (timeBeginPeriod(1) == TIMERR_NOERROR) {
+                g_timerResolutionSet = TRUE;
+            }
+        }
+
         g_initialized = TRUE;
     }
 }
 
 static void ShutdownFrameLimiter(void) {
+    if (g_hTimer) {
+        CloseHandle(g_hTimer);
+        g_hTimer = NULL;
+    }
     if (g_timerResolutionSet) {
         timeEndPeriod(1);
         g_timerResolutionSet = FALSE;
@@ -81,15 +111,32 @@ static void DoFrameLimit(void) {
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     if (remaining > 0) {
-        double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
-
-        if (remainingMs > 2.0) {
-            Sleep((DWORD)(remainingMs - 2.0));
-        }
-
-        while (now.QuadPart < g_nextFrameTime) {
-            _mm_pause();
-            QueryPerformanceCounter(&now);
+        if (g_useHighResTimer && g_hTimer) {
+            // Convert QPC ticks to 100-nanosecond intervals (negative = relative)
+            // Leave 0.5ms margin for final busy-wait
+            LONGLONG margin = g_freq.QuadPart / 2000;
+            if (remaining > margin) {
+                LARGE_INTEGER dueTime;
+                dueTime.QuadPart = -(LONGLONG)((remaining - margin) * 10000000LL / g_freq.QuadPart);
+                if (SetWaitableTimer(g_hTimer, &dueTime, 0, NULL, NULL, FALSE)) {
+                    WaitForSingleObject(g_hTimer, INFINITE);
+                }
+            }
+            // Final busy-wait for precision
+            do {
+                _mm_pause();
+                QueryPerformanceCounter(&now);
+            } while (now.QuadPart < g_nextFrameTime);
+        } else {
+            // Fallback: Sleep + busy-wait
+            double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
+            if (remainingMs > 2.0) {
+                Sleep((DWORD)(remainingMs - 2.0));
+            }
+            do {
+                _mm_pause();
+                QueryPerformanceCounter(&now);
+            } while (now.QuadPart < g_nextFrameTime);
         }
     }
 
