@@ -3,9 +3,166 @@
  */
 
 #include "d3d8to9_base.h"
+#include <stdio.h>
 
 // External VTable declarations
 extern IDirect3DDevice8Vtbl g_Direct3DDevice8_Vtbl;
+
+// ============================================================================
+// D3DX Dynamic Loading for Shader Conversion
+// ============================================================================
+
+// D3DX function types
+typedef HRESULT (WINAPI *PFN_D3DXDisassembleShader)(const DWORD*, BOOL, const char*, void**);
+typedef HRESULT (WINAPI *PFN_D3DXAssembleShader)(const char*, UINT, const void*, void*, DWORD, void**, void**);
+
+// ID3DXBuffer interface
+typedef struct ID3DXBuffer {
+    struct ID3DXBufferVtbl *lpVtbl;
+} ID3DXBuffer;
+
+typedef struct ID3DXBufferVtbl {
+    HRESULT (WINAPI *QueryInterface)(ID3DXBuffer*, REFIID, void**);
+    ULONG (WINAPI *AddRef)(ID3DXBuffer*);
+    ULONG (WINAPI *Release)(ID3DXBuffer*);
+    void* (WINAPI *GetBufferPointer)(ID3DXBuffer*);
+    DWORD (WINAPI *GetBufferSize)(ID3DXBuffer*);
+} ID3DXBufferVtbl;
+
+#define ID3DXBuffer_Release(p) ((p)->lpVtbl->Release(p))
+#define ID3DXBuffer_GetBufferPointer(p) ((p)->lpVtbl->GetBufferPointer(p))
+#define ID3DXBuffer_GetBufferSize(p) ((p)->lpVtbl->GetBufferSize(p))
+
+static HMODULE g_hD3DX9 = NULL;
+static PFN_D3DXDisassembleShader g_pD3DXDisassembleShader = NULL;
+static PFN_D3DXAssembleShader g_pD3DXAssembleShader = NULL;
+static BOOL g_D3DXLoaded = FALSE;
+static BOOL g_D3DXAvailable = FALSE;
+
+static void LoadD3DX9(void)
+{
+    if (g_D3DXLoaded) return;
+    g_D3DXLoaded = TRUE;
+
+    // Try to load various versions of d3dx9
+    const char *d3dxDlls[] = {
+        "d3dx9_43.dll", "d3dx9_42.dll", "d3dx9_41.dll", "d3dx9_40.dll",
+        "d3dx9_39.dll", "d3dx9_38.dll", "d3dx9_37.dll", "d3dx9_36.dll",
+        "d3dx9_35.dll", "d3dx9_34.dll", "d3dx9_33.dll", "d3dx9_32.dll",
+        "d3dx9_31.dll", "d3dx9_30.dll", "d3dx9_29.dll", "d3dx9_28.dll",
+        "d3dx9_27.dll", "d3dx9_26.dll", "d3dx9_25.dll", "d3dx9_24.dll",
+        NULL
+    };
+
+    for (int i = 0; d3dxDlls[i] != NULL; i++) {
+        g_hD3DX9 = LoadLibraryA(d3dxDlls[i]);
+        if (g_hD3DX9) break;
+    }
+
+    if (!g_hD3DX9) return;
+
+    g_pD3DXDisassembleShader = (PFN_D3DXDisassembleShader)GetProcAddress(g_hD3DX9, "D3DXDisassembleShader");
+    g_pD3DXAssembleShader = (PFN_D3DXAssembleShader)GetProcAddress(g_hD3DX9, "D3DXAssembleShader");
+
+    g_D3DXAvailable = (g_pD3DXDisassembleShader != NULL && g_pD3DXAssembleShader != NULL);
+}
+
+// Simple string replacement helper
+static char* StringReplace(const char *source, const char *find, const char *replace)
+{
+    if (!source || !find || !replace) return NULL;
+
+    size_t findLen = strlen(find);
+    size_t replaceLen = strlen(replace);
+    size_t sourceLen = strlen(source);
+
+    // Count occurrences
+    int count = 0;
+    const char *p = source;
+    while ((p = strstr(p, find)) != NULL) {
+        count++;
+        p += findLen;
+    }
+
+    if (count == 0) {
+        char *result = (char*)HeapAlloc(GetProcessHeap(), 0, sourceLen + 1);
+        if (result) strcpy(result, source);
+        return result;
+    }
+
+    // Allocate result
+    size_t newLen = sourceLen + count * (replaceLen - findLen);
+    char *result = (char*)HeapAlloc(GetProcessHeap(), 0, newLen + 1);
+    if (!result) return NULL;
+
+    char *dst = result;
+    p = source;
+    while (*p) {
+        if (strncmp(p, find, findLen) == 0) {
+            memcpy(dst, replace, replaceLen);
+            dst += replaceLen;
+            p += findLen;
+        } else {
+            *dst++ = *p++;
+        }
+    }
+    *dst = '\0';
+    return result;
+}
+
+// Convert D3D8 vertex shader to D3D9 using D3DX
+static HRESULT ConvertVertexShaderWithD3DX(IDirect3DDevice9 *pDevice9, const DWORD *pFunction,
+                                            IDirect3DVertexShader9 **ppShader9)
+{
+    if (!g_D3DXAvailable || !pFunction || !ppShader9) return E_FAIL;
+
+    // Disassemble shader
+    ID3DXBuffer *pDisassembly = NULL;
+    HRESULT hr = g_pD3DXDisassembleShader(pFunction, FALSE, NULL, (void**)&pDisassembly);
+    if (FAILED(hr) || !pDisassembly) return hr;
+
+    char *sourceCode = (char*)ID3DXBuffer_GetBufferPointer(pDisassembly);
+    if (!sourceCode) {
+        ID3DXBuffer_Release(pDisassembly);
+        return E_FAIL;
+    }
+
+    // Make a mutable copy
+    size_t sourceLen = strlen(sourceCode);
+    char *modifiedCode = (char*)HeapAlloc(GetProcessHeap(), 0, sourceLen + 256);
+    if (!modifiedCode) {
+        ID3DXBuffer_Release(pDisassembly);
+        return E_OUTOFMEMORY;
+    }
+    strcpy(modifiedCode, sourceCode);
+
+    // Upgrade vs_1_0 to vs_1_1
+    char *temp = StringReplace(modifiedCode, "vs_1_0", "vs_1_1");
+    if (temp) {
+        HeapFree(GetProcessHeap(), 0, modifiedCode);
+        modifiedCode = temp;
+    }
+
+    // Assemble modified shader
+    ID3DXBuffer *pCompiledShader = NULL;
+    ID3DXBuffer *pErrors = NULL;
+    hr = g_pD3DXAssembleShader(modifiedCode, (UINT)strlen(modifiedCode), NULL, NULL, 0,
+                                (void**)&pCompiledShader, (void**)&pErrors);
+
+    HeapFree(GetProcessHeap(), 0, modifiedCode);
+    ID3DXBuffer_Release(pDisassembly);
+
+    if (pErrors) ID3DXBuffer_Release(pErrors);
+
+    if (FAILED(hr) || !pCompiledShader) return hr;
+
+    // Create shader from compiled bytecode
+    hr = IDirect3DDevice9_CreateVertexShader(pDevice9,
+            (const DWORD*)ID3DXBuffer_GetBufferPointer(pCompiledShader), ppShader9);
+
+    ID3DXBuffer_Release(pCompiledShader);
+    return hr;
+}
 
 // Forward declarations for resource wrappers
 HRESULT CreateDirect3DSurface8(Direct3DDevice8 *pDevice8, IDirect3DSurface9 *pSurface9, Direct3DSurface8 **ppSurface8);
@@ -556,6 +713,9 @@ HRESULT WINAPI Direct3DDevice8_CreateVertexShader(IDirect3DDevice8 *This, const 
 
     // Create vertex shader if function is provided
     if (pFunction) {
+        // Ensure D3DX is loaded for shader conversion
+        LoadD3DX9();
+
         // Check shader version - D3D8 shaders start with version token
         DWORD shaderVersion = pFunction[0];
         DWORD *pConvertedShader = NULL;
@@ -563,7 +723,12 @@ HRESULT WINAPI Direct3DDevice8_CreateVertexShader(IDirect3DDevice8 *This, const 
         // First try with original shader
         hr = IDirect3DDevice9_CreateVertexShader(self->pDevice9, pFunction, &pInfo->pShader9);
 
-        // If failed and it's vs_1_0, try converting to vs_1_1
+        // If failed, try D3DX-based conversion (disassemble + modify + reassemble)
+        if (FAILED(hr) && g_D3DXAvailable) {
+            hr = ConvertVertexShaderWithD3DX(self->pDevice9, pFunction, &pInfo->pShader9);
+        }
+
+        // If still failed and it's vs_1_0, try simple version patching
         if (FAILED(hr) && shaderVersion == 0xFFFE0100) {
             pConvertedShader = ConvertShaderVersion(pFunction, NULL);
             if (pConvertedShader) {
@@ -582,15 +747,17 @@ HRESULT WINAPI Direct3DDevice8_CreateVertexShader(IDirect3DDevice8 *This, const 
         pInfo->FVF = GenerateFVFFromDeclaration(pDeclaration);
     }
 
-    // Add to handle list
-    *pHandle = AddVertexShaderInfo(self, pInfo);
-    if (*pHandle == 0) {
+    // Add to handle list and set high bit to distinguish from FVF codes
+    DWORD internalHandle = AddVertexShaderInfo(self, pInfo);
+    if (internalHandle == 0) {
         if (pInfo->pShader9) IDirect3DVertexShader9_Release(pInfo->pShader9);
         if (pInfo->pDecl9) IDirect3DVertexDeclaration9_Release(pInfo->pDecl9);
         HeapFree(GetProcessHeap(), 0, pInfo);
         return E_OUTOFMEMORY;
     }
 
+    // Set high bit (0x80000000) to mark as shader handle, not FVF
+    *pHandle = internalHandle | 0x80000000;
     return D3D_OK;
 }
 
@@ -604,43 +771,48 @@ HRESULT WINAPI Direct3DDevice8_SetVertexShader(IDirect3DDevice8 *This, DWORD Han
     if (Handle == 0) {
         IDirect3DDevice9_SetVertexShader(self->pDevice9, NULL);
         IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, NULL);
+        IDirect3DDevice9_SetFVF(self->pDevice9, 0);
         return D3D_OK;
     }
 
-    // Check for FVF (high bit set) - D3D8 FVF codes
+    // Check for shader handle (high bit set by CreateVertexShader)
     if (Handle & 0x80000000) {
-        IDirect3DDevice9_SetVertexShader(self->pDevice9, NULL);
-        IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, NULL);
-        return IDirect3DDevice9_SetFVF(self->pDevice9, Handle & ~0x80000000);
-    }
-
-    // Shader handle
-    if (Handle > self->VertexShaderCount) return D3DERR_INVALIDCALL;
-    VertexShaderInfo *pInfo = self->VertexShaderHandles[Handle - 1];
-    if (!pInfo) return D3DERR_INVALIDCALL;
-
-    // If we have a valid shader, use it with the declaration
-    if (pInfo->pShader9) {
-        // Set vertex declaration first
-        if (pInfo->pDecl9) {
-            IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, pInfo->pDecl9);
+        // Shader handle - remove flag and get internal index
+        DWORD internalHandle = Handle & 0x7FFFFFFF;
+        if (internalHandle == 0 || internalHandle > self->VertexShaderCount) {
+            return D3DERR_INVALIDCALL;
         }
-        // Set vertex shader
-        return IDirect3DDevice9_SetVertexShader(self->pDevice9, pInfo->pShader9);
+
+        VertexShaderInfo *pInfo = self->VertexShaderHandles[internalHandle - 1];
+        if (!pInfo) return D3DERR_INVALIDCALL;
+
+        // If we have a valid shader, use it with the declaration
+        if (pInfo->pShader9) {
+            // Set vertex declaration first
+            if (pInfo->pDecl9) {
+                IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, pInfo->pDecl9);
+            }
+            // Set vertex shader
+            return IDirect3DDevice9_SetVertexShader(self->pDevice9, pInfo->pShader9);
+        }
+
+        // No shader - use FVF fallback for fixed-function pipeline
+        IDirect3DDevice9_SetVertexShader(self->pDevice9, NULL);
+        if (pInfo->FVF != 0) {
+            // Use generated FVF
+            IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, NULL);
+            return IDirect3DDevice9_SetFVF(self->pDevice9, pInfo->FVF);
+        } else if (pInfo->pDecl9) {
+            // Fall back to declaration if FVF couldn't be generated
+            return IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, pInfo->pDecl9);
+        }
+        return D3D_OK;
     }
 
-    // No shader - use FVF fallback for fixed-function pipeline
+    // No high bit = FVF code, pass directly to D3D9
     IDirect3DDevice9_SetVertexShader(self->pDevice9, NULL);
-    if (pInfo->FVF != 0) {
-        // Use generated FVF
-        IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, NULL);
-        return IDirect3DDevice9_SetFVF(self->pDevice9, pInfo->FVF);
-    } else if (pInfo->pDecl9) {
-        // Fall back to declaration if FVF couldn't be generated
-        return IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, pInfo->pDecl9);
-    }
-
-    return D3D_OK;
+    IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, NULL);
+    return IDirect3DDevice9_SetFVF(self->pDevice9, Handle);
 }
 
 HRESULT WINAPI Direct3DDevice8_GetVertexShader(IDirect3DDevice8 *This, DWORD *pHandle)
@@ -654,14 +826,21 @@ HRESULT WINAPI Direct3DDevice8_GetVertexShader(IDirect3DDevice8 *This, DWORD *pH
 HRESULT WINAPI Direct3DDevice8_DeleteVertexShader(IDirect3DDevice8 *This, DWORD Handle)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
-    if (Handle == 0 || Handle > self->VertexShaderCount) return D3DERR_INVALIDCALL;
 
-    VertexShaderInfo *pInfo = self->VertexShaderHandles[Handle - 1];
+    // Check for shader handle (high bit set)
+    if (!(Handle & 0x80000000)) return D3DERR_INVALIDCALL;
+
+    DWORD internalHandle = Handle & 0x7FFFFFFF;
+    if (internalHandle == 0 || internalHandle > self->VertexShaderCount) {
+        return D3DERR_INVALIDCALL;
+    }
+
+    VertexShaderInfo *pInfo = self->VertexShaderHandles[internalHandle - 1];
     if (pInfo) {
         if (pInfo->pShader9) IDirect3DVertexShader9_Release(pInfo->pShader9);
         if (pInfo->pDecl9) IDirect3DVertexDeclaration9_Release(pInfo->pDecl9);
         HeapFree(GetProcessHeap(), 0, pInfo);
-        self->VertexShaderHandles[Handle - 1] = NULL;
+        self->VertexShaderHandles[internalHandle - 1] = NULL;
     }
     return D3D_OK;
 }
@@ -688,9 +867,16 @@ HRESULT WINAPI Direct3DDevice8_GetVertexShaderDeclaration(IDirect3DDevice8 *This
 HRESULT WINAPI Direct3DDevice8_GetVertexShaderFunction(IDirect3DDevice8 *This, DWORD Handle, void *pData, DWORD *pSizeOfData)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
-    if (Handle == 0 || Handle > self->VertexShaderCount) return D3DERR_INVALIDCALL;
 
-    VertexShaderInfo *pInfo = self->VertexShaderHandles[Handle - 1];
+    // Check for shader handle (high bit set)
+    if (!(Handle & 0x80000000)) return D3DERR_INVALIDCALL;
+
+    DWORD internalHandle = Handle & 0x7FFFFFFF;
+    if (internalHandle == 0 || internalHandle > self->VertexShaderCount) {
+        return D3DERR_INVALIDCALL;
+    }
+
+    VertexShaderInfo *pInfo = self->VertexShaderHandles[internalHandle - 1];
     if (!pInfo || !pInfo->pShader9) return D3DERR_INVALIDCALL;
 
     return IDirect3DVertexShader9_GetFunction(pInfo->pShader9, pData, (UINT *)pSizeOfData);

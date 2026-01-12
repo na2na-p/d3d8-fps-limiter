@@ -466,7 +466,9 @@ static inline void ConvertD3D8RegisterToD3D9Usage(DWORD d3d8Reg, BYTE *pUsage, B
 #define VSYNC_FORCE_OFF        2
 
 typedef struct D3D8to9Config {
-    int VSyncMode;  // 0 = game setting, 1 = force on, 2 = force off
+    int VSyncMode;              // 0 = game setting, 1 = force on, 2 = force off
+    int ForceSoftwareVP;        // 0 = use game setting, 1 = force software vertex processing
+    int DisableLightingOnFVF;   // 1 = disable lighting when using FVF fallback (default)
 } D3D8to9Config;
 
 // Global config (defined in d3d8to9_d3d8.c)
