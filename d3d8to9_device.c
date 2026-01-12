@@ -19,7 +19,7 @@ extern IDirect3D8Vtbl g_Direct3D8_Vtbl;
 // IDirect3DDevice8 Implementation
 // ============================================================================
 
-static HRESULT WINAPI Direct3DDevice8_QueryInterface(IDirect3DDevice8 *This, REFIID riid, void **ppvObject)
+HRESULT WINAPI Direct3DDevice8_QueryInterface(IDirect3DDevice8 *This, REFIID riid, void **ppvObject)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (ppvObject == NULL) return E_POINTER;
@@ -34,13 +34,13 @@ static HRESULT WINAPI Direct3DDevice8_QueryInterface(IDirect3DDevice8 *This, REF
     return E_NOINTERFACE;
 }
 
-static ULONG WINAPI Direct3DDevice8_AddRef(IDirect3DDevice8 *This)
+ULONG WINAPI Direct3DDevice8_AddRef(IDirect3DDevice8 *This)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return ++self->RefCount;
 }
 
-static ULONG WINAPI Direct3DDevice8_Release(IDirect3DDevice8 *This)
+ULONG WINAPI Direct3DDevice8_Release(IDirect3DDevice8 *This)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     ULONG ref = --self->RefCount;
@@ -59,26 +59,26 @@ static ULONG WINAPI Direct3DDevice8_Release(IDirect3DDevice8 *This)
     return ref;
 }
 
-static HRESULT WINAPI Direct3DDevice8_TestCooperativeLevel(IDirect3DDevice8 *This)
+HRESULT WINAPI Direct3DDevice8_TestCooperativeLevel(IDirect3DDevice8 *This)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_TestCooperativeLevel(self->pDevice9);
 }
 
-static UINT WINAPI Direct3DDevice8_GetAvailableTextureMem(IDirect3DDevice8 *This)
+UINT WINAPI Direct3DDevice8_GetAvailableTextureMem(IDirect3DDevice8 *This)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_GetAvailableTextureMem(self->pDevice9);
 }
 
-static HRESULT WINAPI Direct3DDevice8_ResourceManagerDiscardBytes(IDirect3DDevice8 *This, DWORD Bytes)
+HRESULT WINAPI Direct3DDevice8_ResourceManagerDiscardBytes(IDirect3DDevice8 *This, DWORD Bytes)
 {
     (void)This; (void)Bytes;
     // D3D9 doesn't have this method
     return D3D_OK;
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetDirect3D(IDirect3DDevice8 *This, IDirect3D8 **ppD3D8)
+HRESULT WINAPI Direct3DDevice8_GetDirect3D(IDirect3DDevice8 *This, IDirect3D8 **ppD3D8)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (ppD3D8 == NULL) return D3DERR_INVALIDCALL;
@@ -88,7 +88,7 @@ static HRESULT WINAPI Direct3DDevice8_GetDirect3D(IDirect3DDevice8 *This, IDirec
     return D3D_OK;
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetDeviceCaps(IDirect3DDevice8 *This, D3DCAPS8 *pCaps)
+HRESULT WINAPI Direct3DDevice8_GetDeviceCaps(IDirect3DDevice8 *This, D3DCAPS8 *pCaps)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     D3DCAPS9 caps9;
@@ -99,38 +99,38 @@ static HRESULT WINAPI Direct3DDevice8_GetDeviceCaps(IDirect3DDevice8 *This, D3DC
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetDisplayMode(IDirect3DDevice8 *This, D3DDISPLAYMODE *pMode)
+HRESULT WINAPI Direct3DDevice8_GetDisplayMode(IDirect3DDevice8 *This, D3DDISPLAYMODE *pMode)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_GetDisplayMode(self->pDevice9, 0, pMode);
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetCreationParameters(IDirect3DDevice8 *This, void *pParameters)
+HRESULT WINAPI Direct3DDevice8_GetCreationParameters(IDirect3DDevice8 *This, void *pParameters)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_GetCreationParameters(self->pDevice9, (D3DDEVICE_CREATION_PARAMETERS *)pParameters);
 }
 
-static HRESULT WINAPI Direct3DDevice8_SetCursorProperties(IDirect3DDevice8 *This, UINT XHotSpot, UINT YHotSpot, IDirect3DSurface8 *pCursorBitmap)
+HRESULT WINAPI Direct3DDevice8_SetCursorProperties(IDirect3DDevice8 *This, UINT XHotSpot, UINT YHotSpot, IDirect3DSurface8 *pCursorBitmap)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     Direct3DSurface8 *pSurf8 = (Direct3DSurface8 *)pCursorBitmap;
     return IDirect3DDevice9_SetCursorProperties(self->pDevice9, XHotSpot, YHotSpot, pSurf8 ? pSurf8->pSurface9 : NULL);
 }
 
-static void WINAPI Direct3DDevice8_SetCursorPosition(IDirect3DDevice8 *This, int X, int Y, DWORD Flags)
+void WINAPI Direct3DDevice8_SetCursorPosition(IDirect3DDevice8 *This, int X, int Y, DWORD Flags)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     IDirect3DDevice9_SetCursorPosition(self->pDevice9, X, Y, Flags);
 }
 
-static BOOL WINAPI Direct3DDevice8_ShowCursor(IDirect3DDevice8 *This, BOOL bShow)
+BOOL WINAPI Direct3DDevice8_ShowCursor(IDirect3DDevice8 *This, BOOL bShow)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_ShowCursor(self->pDevice9, bShow);
 }
 
-static HRESULT WINAPI Direct3DDevice8_CreateAdditionalSwapChain(IDirect3DDevice8 *This, D3DPRESENT_PARAMETERS8 *pPresentationParameters, IDirect3DSwapChain8 **ppSwapChain)
+HRESULT WINAPI Direct3DDevice8_CreateAdditionalSwapChain(IDirect3DDevice8 *This, D3DPRESENT_PARAMETERS8 *pPresentationParameters, IDirect3DSwapChain8 **ppSwapChain)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!pPresentationParameters || !ppSwapChain) return D3DERR_INVALIDCALL;
@@ -154,7 +154,7 @@ static HRESULT WINAPI Direct3DDevice8_CreateAdditionalSwapChain(IDirect3DDevice8
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_Reset(IDirect3DDevice8 *This, D3DPRESENT_PARAMETERS8 *pPresentationParameters)
+HRESULT WINAPI Direct3DDevice8_Reset(IDirect3DDevice8 *This, D3DPRESENT_PARAMETERS8 *pPresentationParameters)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!pPresentationParameters) return D3DERR_INVALIDCALL;
@@ -173,13 +173,13 @@ static HRESULT WINAPI Direct3DDevice8_Reset(IDirect3DDevice8 *This, D3DPRESENT_P
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_Present(IDirect3DDevice8 *This, const RECT *pSourceRect, const RECT *pDestRect, HWND hDestWindowOverride, const RGNDATA *pDirtyRegion)
+HRESULT WINAPI Direct3DDevice8_Present(IDirect3DDevice8 *This, const RECT *pSourceRect, const RECT *pDestRect, HWND hDestWindowOverride, const RGNDATA *pDirtyRegion)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_Present(self->pDevice9, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetBackBuffer(IDirect3DDevice8 *This, UINT BackBuffer, D3DBACKBUFFER_TYPE Type, IDirect3DSurface8 **ppBackBuffer)
+HRESULT WINAPI Direct3DDevice8_GetBackBuffer(IDirect3DDevice8 *This, UINT BackBuffer, D3DBACKBUFFER_TYPE Type, IDirect3DSurface8 **ppBackBuffer)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppBackBuffer) return D3DERR_INVALIDCALL;
@@ -196,25 +196,25 @@ static HRESULT WINAPI Direct3DDevice8_GetBackBuffer(IDirect3DDevice8 *This, UINT
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetRasterStatus(IDirect3DDevice8 *This, D3DRASTER_STATUS *pRasterStatus)
+HRESULT WINAPI Direct3DDevice8_GetRasterStatus(IDirect3DDevice8 *This, D3DRASTER_STATUS *pRasterStatus)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_GetRasterStatus(self->pDevice9, 0, pRasterStatus);
 }
 
-static void WINAPI Direct3DDevice8_SetGammaRamp(IDirect3DDevice8 *This, DWORD Flags, const D3DGAMMARAMP *pRamp)
+void WINAPI Direct3DDevice8_SetGammaRamp(IDirect3DDevice8 *This, DWORD Flags, const D3DGAMMARAMP *pRamp)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     IDirect3DDevice9_SetGammaRamp(self->pDevice9, 0, Flags, pRamp);
 }
 
-static void WINAPI Direct3DDevice8_GetGammaRamp(IDirect3DDevice8 *This, D3DGAMMARAMP *pRamp)
+void WINAPI Direct3DDevice8_GetGammaRamp(IDirect3DDevice8 *This, D3DGAMMARAMP *pRamp)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     IDirect3DDevice9_GetGammaRamp(self->pDevice9, 0, pRamp);
 }
 
-static HRESULT WINAPI Direct3DDevice8_CreateTexture(IDirect3DDevice8 *This, UINT Width, UINT Height, UINT Levels, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DTexture8 **ppTexture)
+HRESULT WINAPI Direct3DDevice8_CreateTexture(IDirect3DDevice8 *This, UINT Width, UINT Height, UINT Levels, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DTexture8 **ppTexture)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppTexture) return D3DERR_INVALIDCALL;
@@ -231,7 +231,7 @@ static HRESULT WINAPI Direct3DDevice8_CreateTexture(IDirect3DDevice8 *This, UINT
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_CreateVolumeTexture(IDirect3DDevice8 *This, UINT Width, UINT Height, UINT Depth, UINT Levels, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DVolumeTexture8 **ppVolumeTexture)
+HRESULT WINAPI Direct3DDevice8_CreateVolumeTexture(IDirect3DDevice8 *This, UINT Width, UINT Height, UINT Depth, UINT Levels, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DVolumeTexture8 **ppVolumeTexture)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppVolumeTexture) return D3DERR_INVALIDCALL;
@@ -248,7 +248,7 @@ static HRESULT WINAPI Direct3DDevice8_CreateVolumeTexture(IDirect3DDevice8 *This
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_CreateCubeTexture(IDirect3DDevice8 *This, UINT EdgeLength, UINT Levels, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DCubeTexture8 **ppCubeTexture)
+HRESULT WINAPI Direct3DDevice8_CreateCubeTexture(IDirect3DDevice8 *This, UINT EdgeLength, UINT Levels, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DCubeTexture8 **ppCubeTexture)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppCubeTexture) return D3DERR_INVALIDCALL;
@@ -265,7 +265,7 @@ static HRESULT WINAPI Direct3DDevice8_CreateCubeTexture(IDirect3DDevice8 *This, 
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_CreateVertexBuffer(IDirect3DDevice8 *This, UINT Length, DWORD Usage, DWORD FVF, D3DPOOL Pool, IDirect3DVertexBuffer8 **ppVertexBuffer)
+HRESULT WINAPI Direct3DDevice8_CreateVertexBuffer(IDirect3DDevice8 *This, UINT Length, DWORD Usage, DWORD FVF, D3DPOOL Pool, IDirect3DVertexBuffer8 **ppVertexBuffer)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppVertexBuffer) return D3DERR_INVALIDCALL;
@@ -282,7 +282,7 @@ static HRESULT WINAPI Direct3DDevice8_CreateVertexBuffer(IDirect3DDevice8 *This,
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_CreateIndexBuffer(IDirect3DDevice8 *This, UINT Length, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DIndexBuffer8 **ppIndexBuffer)
+HRESULT WINAPI Direct3DDevice8_CreateIndexBuffer(IDirect3DDevice8 *This, UINT Length, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DIndexBuffer8 **ppIndexBuffer)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppIndexBuffer) return D3DERR_INVALIDCALL;
@@ -299,7 +299,7 @@ static HRESULT WINAPI Direct3DDevice8_CreateIndexBuffer(IDirect3DDevice8 *This, 
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_CreateRenderTarget(IDirect3DDevice8 *This, UINT Width, UINT Height, D3DFORMAT Format, D3DMULTISAMPLE_TYPE MultiSample, BOOL Lockable, IDirect3DSurface8 **ppSurface)
+HRESULT WINAPI Direct3DDevice8_CreateRenderTarget(IDirect3DDevice8 *This, UINT Width, UINT Height, D3DFORMAT Format, D3DMULTISAMPLE_TYPE MultiSample, BOOL Lockable, IDirect3DSurface8 **ppSurface)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppSurface) return D3DERR_INVALIDCALL;
@@ -316,7 +316,7 @@ static HRESULT WINAPI Direct3DDevice8_CreateRenderTarget(IDirect3DDevice8 *This,
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_CreateDepthStencilSurface(IDirect3DDevice8 *This, UINT Width, UINT Height, D3DFORMAT Format, D3DMULTISAMPLE_TYPE MultiSample, IDirect3DSurface8 **ppSurface)
+HRESULT WINAPI Direct3DDevice8_CreateDepthStencilSurface(IDirect3DDevice8 *This, UINT Width, UINT Height, D3DFORMAT Format, D3DMULTISAMPLE_TYPE MultiSample, IDirect3DSurface8 **ppSurface)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppSurface) return D3DERR_INVALIDCALL;
@@ -333,7 +333,7 @@ static HRESULT WINAPI Direct3DDevice8_CreateDepthStencilSurface(IDirect3DDevice8
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_CreateImageSurface(IDirect3DDevice8 *This, UINT Width, UINT Height, D3DFORMAT Format, IDirect3DSurface8 **ppSurface)
+HRESULT WINAPI Direct3DDevice8_CreateImageSurface(IDirect3DDevice8 *This, UINT Width, UINT Height, D3DFORMAT Format, IDirect3DSurface8 **ppSurface)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppSurface) return D3DERR_INVALIDCALL;
@@ -350,7 +350,7 @@ static HRESULT WINAPI Direct3DDevice8_CreateImageSurface(IDirect3DDevice8 *This,
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_CopyRects(IDirect3DDevice8 *This, IDirect3DSurface8 *pSourceSurface, const RECT *pSourceRectsArray, UINT cRects, IDirect3DSurface8 *pDestinationSurface, const POINT *pDestPointsArray)
+HRESULT WINAPI Direct3DDevice8_CopyRects(IDirect3DDevice8 *This, IDirect3DSurface8 *pSourceSurface, const RECT *pSourceRectsArray, UINT cRects, IDirect3DSurface8 *pDestinationSurface, const POINT *pDestPointsArray)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     Direct3DSurface8 *pSrc = (Direct3DSurface8 *)pSourceSurface;
@@ -371,7 +371,7 @@ static HRESULT WINAPI Direct3DDevice8_CopyRects(IDirect3DDevice8 *This, IDirect3
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_UpdateTexture(IDirect3DDevice8 *This, IDirect3DBaseTexture8 *pSourceTexture, IDirect3DBaseTexture8 *pDestinationTexture)
+HRESULT WINAPI Direct3DDevice8_UpdateTexture(IDirect3DDevice8 *This, IDirect3DBaseTexture8 *pSourceTexture, IDirect3DBaseTexture8 *pDestinationTexture)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     Direct3DTexture8 *pSrc = (Direct3DTexture8 *)pSourceTexture;
@@ -382,7 +382,7 @@ static HRESULT WINAPI Direct3DDevice8_UpdateTexture(IDirect3DDevice8 *This, IDir
     return IDirect3DDevice9_UpdateTexture(self->pDevice9, (IDirect3DBaseTexture9 *)pSrc->pTexture9, (IDirect3DBaseTexture9 *)pDst->pTexture9);
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetFrontBuffer(IDirect3DDevice8 *This, IDirect3DSurface8 *pDestSurface)
+HRESULT WINAPI Direct3DDevice8_GetFrontBuffer(IDirect3DDevice8 *This, IDirect3DSurface8 *pDestSurface)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     Direct3DSurface8 *pDst = (Direct3DSurface8 *)pDestSurface;
@@ -391,7 +391,7 @@ static HRESULT WINAPI Direct3DDevice8_GetFrontBuffer(IDirect3DDevice8 *This, IDi
     return IDirect3DDevice9_GetFrontBufferData(self->pDevice9, 0, pDst->pSurface9);
 }
 
-static HRESULT WINAPI Direct3DDevice8_SetRenderTarget(IDirect3DDevice8 *This, IDirect3DSurface8 *pRenderTarget, IDirect3DSurface8 *pNewZStencil)
+HRESULT WINAPI Direct3DDevice8_SetRenderTarget(IDirect3DDevice8 *This, IDirect3DSurface8 *pRenderTarget, IDirect3DSurface8 *pNewZStencil)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     Direct3DSurface8 *pRT = (Direct3DSurface8 *)pRenderTarget;
@@ -407,7 +407,7 @@ static HRESULT WINAPI Direct3DDevice8_SetRenderTarget(IDirect3DDevice8 *This, ID
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetRenderTarget(IDirect3DDevice8 *This, IDirect3DSurface8 **ppRenderTarget)
+HRESULT WINAPI Direct3DDevice8_GetRenderTarget(IDirect3DDevice8 *This, IDirect3DSurface8 **ppRenderTarget)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppRenderTarget) return D3DERR_INVALIDCALL;
@@ -424,7 +424,7 @@ static HRESULT WINAPI Direct3DDevice8_GetRenderTarget(IDirect3DDevice8 *This, ID
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetDepthStencilSurface(IDirect3DDevice8 *This, IDirect3DSurface8 **ppZStencilSurface)
+HRESULT WINAPI Direct3DDevice8_GetDepthStencilSurface(IDirect3DDevice8 *This, IDirect3DSurface8 **ppZStencilSurface)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!ppZStencilSurface) return D3DERR_INVALIDCALL;
@@ -441,103 +441,103 @@ static HRESULT WINAPI Direct3DDevice8_GetDepthStencilSurface(IDirect3DDevice8 *T
     return hr;
 }
 
-static HRESULT WINAPI Direct3DDevice8_BeginScene(IDirect3DDevice8 *This)
+HRESULT WINAPI Direct3DDevice8_BeginScene(IDirect3DDevice8 *This)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_BeginScene(self->pDevice9);
 }
 
-static HRESULT WINAPI Direct3DDevice8_EndScene(IDirect3DDevice8 *This)
+HRESULT WINAPI Direct3DDevice8_EndScene(IDirect3DDevice8 *This)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_EndScene(self->pDevice9);
 }
 
-static HRESULT WINAPI Direct3DDevice8_Clear(IDirect3DDevice8 *This, DWORD Count, const D3DRECT *pRects, DWORD Flags, D3DCOLOR Color, float Z, DWORD Stencil)
+HRESULT WINAPI Direct3DDevice8_Clear(IDirect3DDevice8 *This, DWORD Count, const D3DRECT *pRects, DWORD Flags, D3DCOLOR Color, float Z, DWORD Stencil)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_Clear(self->pDevice9, Count, pRects, Flags, Color, Z, Stencil);
 }
 
-static HRESULT WINAPI Direct3DDevice8_SetTransform(IDirect3DDevice8 *This, D3DTRANSFORMSTATETYPE State, const D3DMATRIX *pMatrix)
+HRESULT WINAPI Direct3DDevice8_SetTransform(IDirect3DDevice8 *This, D3DTRANSFORMSTATETYPE State, const D3DMATRIX *pMatrix)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_SetTransform(self->pDevice9, State, pMatrix);
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetTransform(IDirect3DDevice8 *This, D3DTRANSFORMSTATETYPE State, D3DMATRIX *pMatrix)
+HRESULT WINAPI Direct3DDevice8_GetTransform(IDirect3DDevice8 *This, D3DTRANSFORMSTATETYPE State, D3DMATRIX *pMatrix)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_GetTransform(self->pDevice9, State, pMatrix);
 }
 
-static HRESULT WINAPI Direct3DDevice8_MultiplyTransform(IDirect3DDevice8 *This, D3DTRANSFORMSTATETYPE State, const D3DMATRIX *pMatrix)
+HRESULT WINAPI Direct3DDevice8_MultiplyTransform(IDirect3DDevice8 *This, D3DTRANSFORMSTATETYPE State, const D3DMATRIX *pMatrix)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_MultiplyTransform(self->pDevice9, State, pMatrix);
 }
 
-static HRESULT WINAPI Direct3DDevice8_SetViewport(IDirect3DDevice8 *This, const D3DVIEWPORT8 *pViewport)
+HRESULT WINAPI Direct3DDevice8_SetViewport(IDirect3DDevice8 *This, const D3DVIEWPORT8 *pViewport)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_SetViewport(self->pDevice9, (const D3DVIEWPORT9 *)pViewport);
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetViewport(IDirect3DDevice8 *This, D3DVIEWPORT8 *pViewport)
+HRESULT WINAPI Direct3DDevice8_GetViewport(IDirect3DDevice8 *This, D3DVIEWPORT8 *pViewport)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_GetViewport(self->pDevice9, (D3DVIEWPORT9 *)pViewport);
 }
 
-static HRESULT WINAPI Direct3DDevice8_SetMaterial(IDirect3DDevice8 *This, const D3DMATERIAL8 *pMaterial)
+HRESULT WINAPI Direct3DDevice8_SetMaterial(IDirect3DDevice8 *This, const D3DMATERIAL8 *pMaterial)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_SetMaterial(self->pDevice9, (const D3DMATERIAL9 *)pMaterial);
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetMaterial(IDirect3DDevice8 *This, D3DMATERIAL8 *pMaterial)
+HRESULT WINAPI Direct3DDevice8_GetMaterial(IDirect3DDevice8 *This, D3DMATERIAL8 *pMaterial)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_GetMaterial(self->pDevice9, (D3DMATERIAL9 *)pMaterial);
 }
 
-static HRESULT WINAPI Direct3DDevice8_SetLight(IDirect3DDevice8 *This, DWORD Index, const D3DLIGHT8 *pLight)
+HRESULT WINAPI Direct3DDevice8_SetLight(IDirect3DDevice8 *This, DWORD Index, const D3DLIGHT8 *pLight)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_SetLight(self->pDevice9, Index, (const D3DLIGHT9 *)pLight);
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetLight(IDirect3DDevice8 *This, DWORD Index, D3DLIGHT8 *pLight)
+HRESULT WINAPI Direct3DDevice8_GetLight(IDirect3DDevice8 *This, DWORD Index, D3DLIGHT8 *pLight)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_GetLight(self->pDevice9, Index, (D3DLIGHT9 *)pLight);
 }
 
-static HRESULT WINAPI Direct3DDevice8_LightEnable(IDirect3DDevice8 *This, DWORD Index, BOOL Enable)
+HRESULT WINAPI Direct3DDevice8_LightEnable(IDirect3DDevice8 *This, DWORD Index, BOOL Enable)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_LightEnable(self->pDevice9, Index, Enable);
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetLightEnable(IDirect3DDevice8 *This, DWORD Index, BOOL *pEnable)
+HRESULT WINAPI Direct3DDevice8_GetLightEnable(IDirect3DDevice8 *This, DWORD Index, BOOL *pEnable)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_GetLightEnable(self->pDevice9, Index, pEnable);
 }
 
-static HRESULT WINAPI Direct3DDevice8_SetClipPlane(IDirect3DDevice8 *This, DWORD Index, const float *pPlane)
+HRESULT WINAPI Direct3DDevice8_SetClipPlane(IDirect3DDevice8 *This, DWORD Index, const float *pPlane)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_SetClipPlane(self->pDevice9, Index, pPlane);
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetClipPlane(IDirect3DDevice8 *This, DWORD Index, float *pPlane)
+HRESULT WINAPI Direct3DDevice8_GetClipPlane(IDirect3DDevice8 *This, DWORD Index, float *pPlane)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     return IDirect3DDevice9_GetClipPlane(self->pDevice9, Index, pPlane);
 }
 
-static HRESULT WINAPI Direct3DDevice8_SetRenderState(IDirect3DDevice8 *This, D3DRENDERSTATETYPE State, DWORD Value)
+HRESULT WINAPI Direct3DDevice8_SetRenderState(IDirect3DDevice8 *This, D3DRENDERSTATETYPE State, DWORD Value)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
 
@@ -559,7 +559,7 @@ static HRESULT WINAPI Direct3DDevice8_SetRenderState(IDirect3DDevice8 *This, D3D
     }
 }
 
-static HRESULT WINAPI Direct3DDevice8_GetRenderState(IDirect3DDevice8 *This, D3DRENDERSTATETYPE State, DWORD *pValue)
+HRESULT WINAPI Direct3DDevice8_GetRenderState(IDirect3DDevice8 *This, D3DRENDERSTATETYPE State, DWORD *pValue)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
 
