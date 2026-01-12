@@ -179,12 +179,10 @@ static void DoFrameLimit_HighRes(void) {
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
-    // Only wait if we're ahead of schedule
-    // If we're behind, skip waiting entirely to avoid making things worse
     if (remaining > 0) {
-        // Use pre-calculated margin to avoid computation
+        // We're ahead of schedule - wait for the target time
         if (remaining > g_busywaitMargin) {
-            // Convert QPC ticks to 100-nanosecond intervals (negative = relative time)
+            // Use high-resolution timer for bulk of wait
             LARGE_INTEGER dueTime;
             dueTime.QuadPart = -(LONGLONG)((remaining - g_busywaitMargin) * 10000000LL / g_freq.QuadPart);
             if (SetWaitableTimer(g_hTimer, &dueTime, 0, NULL, NULL, FALSE)) {
@@ -196,14 +194,14 @@ static void DoFrameLimit_HighRes(void) {
             _mm_pause();
             QueryPerformanceCounter(&now);
         } while (now.QuadPart < g_nextFrameTime);
-    } else {
-        // We're behind schedule - get current time for accurate adjustment
-        QueryPerformanceCounter(&now);
-    }
 
-    // Always advance by exactly one frame interval - maintain strict fixed cadence
-    // For high-FPS games (1000+ fps), this ensures perfectly even frame pacing
-    g_nextFrameTime += g_targetFrameTicks;
+        // Advance to next frame from the target we just hit
+        g_nextFrameTime += g_targetFrameTicks;
+    } else {
+        // We're behind schedule - reset timing from current position
+        // This prevents accumulated drift in variable load scenarios
+        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+    }
 }
 
 // Fallback implementation using Sleep (no branching in hot path)
@@ -213,8 +211,8 @@ static void DoFrameLimit_Fallback(void) {
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
-    // Only wait if we're ahead of schedule
     if (remaining > 0) {
+        // We're ahead of schedule - wait for the target time
         double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
         if (remainingMs > SLEEP_MARGIN_MS) {
             Sleep((DWORD)(remainingMs - SLEEP_MARGIN_MS));
@@ -224,12 +222,14 @@ static void DoFrameLimit_Fallback(void) {
             _mm_pause();
             QueryPerformanceCounter(&now);
         } while (now.QuadPart < g_nextFrameTime);
-    }
-    // If behind, skip waiting and proceed immediately
 
-    // Always advance by exactly one frame interval - maintain strict fixed cadence
-    // For high-FPS games (1000+ fps), this ensures perfectly even frame pacing
-    g_nextFrameTime += g_targetFrameTicks;
+        // Advance to next frame from the target we just hit
+        g_nextFrameTime += g_targetFrameTicks;
+    } else {
+        // We're behind schedule - reset timing from current position
+        // This prevents accumulated drift in variable load scenarios
+        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+    }
 }
 
 // Main frame limiter entry point (inline wrapper)
