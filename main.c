@@ -1,9 +1,17 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <mmsystem.h>
-#include <intrin.h>
 
-#pragma comment(lib, "winmm.lib")
+// Compiler-specific settings
+#ifdef _MSC_VER
+    #include <intrin.h>
+    #define FORCE_INLINE static __forceinline
+    #pragma comment(lib, "winmm.lib")
+#else
+    // GCC/MinGW
+    #include <x86intrin.h>
+    #define FORCE_INLINE static inline __attribute__((always_inline))
+#endif
 
 // ============================================================================
 // Constants
@@ -230,7 +238,7 @@ static void DoFrameLimit_Fallback(void) {
 }
 
 // Main frame limiter entry point (inline wrapper)
-static __forceinline void DoFrameLimit(void) {
+FORCE_INLINE void DoFrameLimit(void) {
     if (g_targetFPS > 0 && DoFrameLimit_Impl) {
         DoFrameLimit_Impl();
     }
