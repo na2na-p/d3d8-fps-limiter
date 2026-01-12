@@ -136,28 +136,20 @@ static void DoFrameLimit_HighRes(void) {
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
-    if (remaining > 0) {
-        if (remaining > g_busywaitMargin) {
-            LARGE_INTEGER dueTime;
-            dueTime.QuadPart = -(LONGLONG)((remaining - g_busywaitMargin) * 10000000LL / g_freq.QuadPart);
-            if (SetWaitableTimer(g_hTimer, &dueTime, 0, NULL, NULL, FALSE)) {
-                WaitForSingleObject(g_hTimer, INFINITE);
-            }
+    if (remaining > g_busywaitMargin) {
+        LARGE_INTEGER dueTime;
+        dueTime.QuadPart = -(LONGLONG)((remaining - g_busywaitMargin) * 10000000LL / g_freq.QuadPart);
+        if (SetWaitableTimer(g_hTimer, &dueTime, 0, NULL, NULL, FALSE)) {
+            WaitForSingleObject(g_hTimer, INFINITE);
         }
-        do {
-            _mm_pause();
-            QueryPerformanceCounter(&now);
-        } while (now.QuadPart < g_nextFrameTime);
-
-        g_nextFrameTime += g_targetFrameTicks;
-    } else {
-        // 遅延時も1フレーム分待機してから次へ
-        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
-        do {
-            _mm_pause();
-            QueryPerformanceCounter(&now);
-        } while (now.QuadPart < g_nextFrameTime);
     }
+
+    do {
+        _mm_pause();
+        QueryPerformanceCounter(&now);
+    } while (now.QuadPart < g_nextFrameTime);
+
+    g_nextFrameTime += g_targetFrameTicks;
 }
 
 static void DoFrameLimit_Fallback(void) {
@@ -166,25 +158,17 @@ static void DoFrameLimit_Fallback(void) {
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
-    if (remaining > 0) {
-        double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
-        if (remainingMs > SLEEP_MARGIN_MS) {
-            Sleep((DWORD)(remainingMs - SLEEP_MARGIN_MS));
-        }
-        do {
-            _mm_pause();
-            QueryPerformanceCounter(&now);
-        } while (now.QuadPart < g_nextFrameTime);
-
-        g_nextFrameTime += g_targetFrameTicks;
-    } else {
-        // 遅延時も1フレーム分待機してから次へ
-        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
-        do {
-            _mm_pause();
-            QueryPerformanceCounter(&now);
-        } while (now.QuadPart < g_nextFrameTime);
+    double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
+    if (remainingMs > SLEEP_MARGIN_MS) {
+        Sleep((DWORD)(remainingMs - SLEEP_MARGIN_MS));
     }
+
+    do {
+        _mm_pause();
+        QueryPerformanceCounter(&now);
+    } while (now.QuadPart < g_nextFrameTime);
+
+    g_nextFrameTime += g_targetFrameTicks;
 }
 
 FORCE_INLINE void DoFrameLimit(void) {
