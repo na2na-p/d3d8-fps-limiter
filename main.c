@@ -5,9 +5,33 @@
 
 #pragma comment(lib, "winmm.lib")
 
+// ============================================================================
+// Constants
+// ============================================================================
+
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
+
+// Direct3D8 vtable indices
+#define VTABLE_INDEX_CREATEDEVICE 15
+#define VTABLE_INDEX_PRESENT      15
+
+// Frame limiter timing constants
+#define BUSYWAIT_MARGIN_MS        0.5   // Margin before final busy-wait (high-res timer)
+#define SLEEP_MARGIN_MS           2.0   // Margin before final busy-wait (fallback)
+#define TIMER_RESOLUTION_MS       1     // timeBeginPeriod resolution
+#define CATCHUP_THRESHOLD         0.5   // Reset timing if behind by this many frames
+
+// Configuration file
+#define CONFIG_FILENAME           "d3d8_limiter.ini"
+#define CONFIG_SECTION            "limiter"
+#define CONFIG_KEY_FPS            "fps"
+#define DEFAULT_FPS               60
+
+// ============================================================================
+// Type Definitions
+// ============================================================================
 
 typedef HANDLE (WINAPI *PFN_CreateWaitableTimerExW)(
     LPSECURITY_ATTRIBUTES, LPCWSTR, DWORD, DWORD);
@@ -19,26 +43,42 @@ typedef IDirect3D8* (WINAPI *PFN_Direct3DCreate8)(UINT);
 typedef HRESULT (WINAPI *PFN_CreateDevice)(IDirect3D8*, UINT, DWORD, HWND, DWORD, void*, IDirect3DDevice8**);
 typedef HRESULT (WINAPI *PFN_Present)(IDirect3DDevice8*, const RECT*, const RECT*, HWND, void*);
 
-static PFN_Direct3DCreate8 Real_Direct3DCreate8 = NULL;
-static HMODULE hRealD3D8 = NULL;
+// ============================================================================
+// Global Variables
+// ============================================================================
 
+// Real D3D8 DLL and function
+static HMODULE hRealD3D8 = NULL;
+static PFN_Direct3DCreate8 Real_Direct3DCreate8 = NULL;
+
+// Frame limiter state
 static LARGE_INTEGER g_freq;
 static LONGLONG g_nextFrameTime;
 static double g_targetFrameTime;
-static int g_targetFPS = 60;
+static int g_targetFPS = DEFAULT_FPS;
 static BOOL g_initialized = FALSE;
+
+// Timer state
 static BOOL g_timerResolutionSet = FALSE;
 static HANDLE g_hTimer = NULL;
 static BOOL g_useHighResTimer = FALSE;
 
+// Hook state
 static PFN_Present Real_Present = NULL;
 static void** g_presentVtableEntry = NULL;
-
 static PFN_CreateDevice Real_CreateDevice = NULL;
 static void** g_createDeviceVtableEntry = NULL;
 
+// ============================================================================
+// Forward Declarations
+// ============================================================================
+
 static HRESULT WINAPI Hooked_Present(IDirect3DDevice8*, const RECT*, const RECT*, HWND, void*);
 static HRESULT WINAPI Hooked_CreateDevice(IDirect3D8*, UINT, DWORD, HWND, DWORD, void*, IDirect3DDevice8**);
+
+// ============================================================================
+// Configuration
+// ============================================================================
 
 static void LoadConfig(void) {
     char path[MAX_PATH];
@@ -46,51 +86,58 @@ static void LoadConfig(void) {
     char *lastSlash = strrchr(path, '\\');
     if (lastSlash) {
         size_t prefix_len = lastSlash - path + 1;
-        // Ensure buffer has space for "d3d8_limiter.ini" (16 chars + null terminator)
-        if (prefix_len + 16 < MAX_PATH) {
-            strcpy(lastSlash + 1, "d3d8_limiter.ini");
-            g_targetFPS = GetPrivateProfileIntA("limiter", "fps", 60, path);
+        size_t config_len = strlen(CONFIG_FILENAME);
+        // Ensure buffer has space for config filename
+        if (prefix_len + config_len < MAX_PATH) {
+            strcpy(lastSlash + 1, CONFIG_FILENAME);
+            g_targetFPS = GetPrivateProfileIntA(CONFIG_SECTION, CONFIG_KEY_FPS, DEFAULT_FPS, path);
         }
     }
 }
 
+// ============================================================================
+// Frame Limiter Implementation
+// ============================================================================
+
 static void InitFrameLimiter(void) {
-    if (!g_initialized) {
-        QueryPerformanceFrequency(&g_freq);
+    if (g_initialized) return;
 
-        LARGE_INTEGER now;
-        QueryPerformanceCounter(&now);
-        g_nextFrameTime = now.QuadPart;
+    // Initialize performance counter
+    QueryPerformanceFrequency(&g_freq);
 
-        LoadConfig();
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    g_nextFrameTime = now.QuadPart;
 
-        if (g_targetFPS > 0) {
-            g_targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
-        }
+    // Load target FPS from config file
+    LoadConfig();
 
-        // Try high-resolution waitable timer (Windows 10 1803+)
-        HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
-        if (hKernel32) {
-            PFN_CreateWaitableTimerExW pCreateWaitableTimerExW =
-                (PFN_CreateWaitableTimerExW)GetProcAddress(hKernel32, "CreateWaitableTimerExW");
-            if (pCreateWaitableTimerExW) {
-                g_hTimer = pCreateWaitableTimerExW(NULL, NULL,
-                    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-                if (g_hTimer) {
-                    g_useHighResTimer = TRUE;
-                }
-            }
-        }
-
-        // Fallback: use timeBeginPeriod for Sleep accuracy
-        if (!g_useHighResTimer) {
-            if (timeBeginPeriod(1) == TIMERR_NOERROR) {
-                g_timerResolutionSet = TRUE;
-            }
-        }
-
-        g_initialized = TRUE;
+    if (g_targetFPS > 0) {
+        g_targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
     }
+
+    // Try high-resolution waitable timer (Windows 10 1803+)
+    HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+    if (hKernel32) {
+        PFN_CreateWaitableTimerExW pCreateWaitableTimerExW =
+            (PFN_CreateWaitableTimerExW)GetProcAddress(hKernel32, "CreateWaitableTimerExW");
+        if (pCreateWaitableTimerExW) {
+            g_hTimer = pCreateWaitableTimerExW(NULL, NULL,
+                CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+            if (g_hTimer) {
+                g_useHighResTimer = TRUE;
+            }
+        }
+    }
+
+    // Fallback: use timeBeginPeriod for Sleep accuracy
+    if (!g_useHighResTimer) {
+        if (timeBeginPeriod(TIMER_RESOLUTION_MS) == TIMERR_NOERROR) {
+            g_timerResolutionSet = TRUE;
+        }
+    }
+
+    g_initialized = TRUE;
 }
 
 static void ShutdownFrameLimiter(void) {
@@ -99,7 +146,7 @@ static void ShutdownFrameLimiter(void) {
         g_hTimer = NULL;
     }
     if (g_timerResolutionSet) {
-        timeEndPeriod(1);
+        timeEndPeriod(TIMER_RESOLUTION_MS);
         g_timerResolutionSet = FALSE;
     }
 }
@@ -114,9 +161,10 @@ static void DoFrameLimit(void) {
 
     if (remaining > 0) {
         if (g_useHighResTimer && g_hTimer) {
-            // Convert QPC ticks to 100-nanosecond intervals (negative = relative)
-            // Leave 0.5ms margin for final busy-wait
-            LONGLONG margin = g_freq.QuadPart / 2000;
+            // High-resolution timer path
+            // Convert QPC ticks to 100-nanosecond intervals (negative = relative time)
+            // Leave margin for final busy-wait to achieve sub-millisecond precision
+            LONGLONG margin = (LONGLONG)(g_freq.QuadPart * BUSYWAIT_MARGIN_MS / 1000.0);
             if (remaining > margin) {
                 LARGE_INTEGER dueTime;
                 dueTime.QuadPart = -(LONGLONG)((remaining - margin) * 10000000LL / g_freq.QuadPart);
@@ -132,9 +180,10 @@ static void DoFrameLimit(void) {
         } else {
             // Fallback: Sleep + busy-wait
             double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
-            if (remainingMs > 2.0) {
-                Sleep((DWORD)(remainingMs - 2.0));
+            if (remainingMs > SLEEP_MARGIN_MS) {
+                Sleep((DWORD)(remainingMs - SLEEP_MARGIN_MS));
             }
+            // Final busy-wait for precision
             do {
                 _mm_pause();
                 QueryPerformanceCounter(&now);
@@ -142,23 +191,25 @@ static void DoFrameLimit(void) {
         }
     }
 
+    // Advance to next frame
     g_nextFrameTime += (LONGLONG)g_targetFrameTime;
 
     // Prevent catch-up stutter when falling behind
     // 'now' already contains the latest counter value from the busy-wait loop above
-    LONGLONG halfFrame = (LONGLONG)(g_targetFrameTime * 0.5);
-    if (now.QuadPart > g_nextFrameTime + halfFrame) {
+    LONGLONG catchupThreshold = (LONGLONG)(g_targetFrameTime * CATCHUP_THRESHOLD);
+    if (now.QuadPart > g_nextFrameTime + catchupThreshold) {
         g_nextFrameTime = now.QuadPart;
     }
 }
 
-static HRESULT CallOriginalPresent(IDirect3DDevice8 *This, const RECT *src, const RECT *dst, HWND hwnd, void *dirty) {
-    // vtable hooking: simply call the saved original function pointer
-    return Real_Present(This, src, dst, hwnd, dirty);
-}
+// ============================================================================
+// Hook Functions
+// ============================================================================
 
 static HRESULT WINAPI Hooked_Present(IDirect3DDevice8 *This, const RECT *src, const RECT *dst, HWND hwnd, void *dirty) {
-    HRESULT hr = CallOriginalPresent(This, src, dst, hwnd, dirty);
+    // Call original Present function
+    HRESULT hr = Real_Present(This, src, dst, hwnd, dirty);
+    // Apply frame rate limiting
     DoFrameLimit();
     return hr;
 }
@@ -166,27 +217,24 @@ static HRESULT WINAPI Hooked_Present(IDirect3DDevice8 *This, const RECT *src, co
 static void InstallPresentHook(IDirect3DDevice8 *device) {
     InitFrameLimiter();
 
+    // Get vtable and save original Present function pointer
     void **vtbl = device->lpVtbl;
-    g_presentVtableEntry = &vtbl[15];
-    Real_Present = (PFN_Present)vtbl[15];
+    g_presentVtableEntry = &vtbl[VTABLE_INDEX_PRESENT];
+    Real_Present = (PFN_Present)vtbl[VTABLE_INDEX_PRESENT];
 
-    // Modify vtable entry directly (more efficient than inline hooking)
+    // Modify vtable entry to point to our hook
     DWORD oldProtect;
     VirtualProtect(g_presentVtableEntry, sizeof(void*), PAGE_READWRITE, &oldProtect);
     *g_presentVtableEntry = (void*)Hooked_Present;
     VirtualProtect(g_presentVtableEntry, sizeof(void*), oldProtect, &oldProtect);
 }
 
-static HRESULT CallOriginalCreateDevice(IDirect3D8 *This, UINT adapter, DWORD type, HWND hwnd,
-                                        DWORD flags, void *params, IDirect3DDevice8 **device) {
-    // vtable hooking: simply call the saved original function pointer
-    return Real_CreateDevice(This, adapter, type, hwnd, flags, params, device);
-}
-
 static HRESULT WINAPI Hooked_CreateDevice(IDirect3D8 *This, UINT adapter, DWORD type, HWND hwnd,
                                           DWORD flags, void *params, IDirect3DDevice8 **device) {
-    HRESULT hr = CallOriginalCreateDevice(This, adapter, type, hwnd, flags, params, device);
+    // Call original CreateDevice function
+    HRESULT hr = Real_CreateDevice(This, adapter, type, hwnd, flags, params, device);
 
+    // If device creation succeeded, install Present hook
     if (SUCCEEDED(hr) && device && *device) {
         InstallPresentHook(*device);
     }
@@ -195,21 +243,29 @@ static HRESULT WINAPI Hooked_CreateDevice(IDirect3D8 *This, UINT adapter, DWORD 
 }
 
 static void InstallCreateDeviceHook(IDirect3D8 *d3d8) {
+    // Get vtable and save original CreateDevice function pointer
     void **vtbl = d3d8->lpVtbl;
-    g_createDeviceVtableEntry = &vtbl[15];
-    Real_CreateDevice = (PFN_CreateDevice)vtbl[15];
+    g_createDeviceVtableEntry = &vtbl[VTABLE_INDEX_CREATEDEVICE];
+    Real_CreateDevice = (PFN_CreateDevice)vtbl[VTABLE_INDEX_CREATEDEVICE];
 
-    // Modify vtable entry directly (more efficient than inline hooking)
+    // Modify vtable entry to point to our hook
     DWORD oldProtect;
     VirtualProtect(g_createDeviceVtableEntry, sizeof(void*), PAGE_READWRITE, &oldProtect);
     *g_createDeviceVtableEntry = (void*)Hooked_CreateDevice;
     VirtualProtect(g_createDeviceVtableEntry, sizeof(void*), oldProtect, &oldProtect);
 }
 
+// ============================================================================
+// Exported Functions
+// ============================================================================
+
 __declspec(dllexport) IDirect3D8* WINAPI Wrapper_Direct3DCreate8(UINT SDKVersion) {
+    // Load real d3d8.dll from system directory on first call
     if (!hRealD3D8) {
         char path[MAX_PATH];
-        GetSystemDirectoryA(path, MAX_PATH);
+        UINT syslen = GetSystemDirectoryA(path, MAX_PATH);
+        if (syslen == 0 || syslen + 10 >= MAX_PATH) return NULL; // 10 = strlen("\\d3d8.dll") + 1
+
         strcat(path, "\\d3d8.dll");
         hRealD3D8 = LoadLibraryA(path);
         if (!hRealD3D8) return NULL;
@@ -218,22 +274,30 @@ __declspec(dllexport) IDirect3D8* WINAPI Wrapper_Direct3DCreate8(UINT SDKVersion
         if (!Real_Direct3DCreate8) return NULL;
     }
 
+    // Create real Direct3D8 object
     IDirect3D8 *d3d8 = Real_Direct3DCreate8(SDKVersion);
     if (!d3d8) return NULL;
 
+    // Install CreateDevice hook to intercept device creation
     InstallCreateDeviceHook(d3d8);
 
     return d3d8;
 }
 
+// ============================================================================
+// DLL Entry Point
+// ============================================================================
+
 BOOL WINAPI DllMain(HINSTANCE hInst, DWORD reason, LPVOID reserved) {
-    (void)hInst; (void)reserved;
+    (void)hInst;
+    (void)reserved;
 
     switch (reason) {
     case DLL_PROCESS_DETACH:
         ShutdownFrameLimiter();
         if (hRealD3D8) {
             FreeLibrary(hRealD3D8);
+            hRealD3D8 = NULL;
         }
         break;
     }
