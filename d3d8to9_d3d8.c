@@ -20,7 +20,9 @@ HRESULT CreateDirect3DDevice8(Direct3D8 *pD3D8, IDirect3DDevice9 *pDevice9, Dire
 
 // Global config instance
 D3D8to9Config g_Config = {
-    .VSyncMode = VSYNC_USE_GAME_SETTING
+    .VSyncMode = VSYNC_USE_GAME_SETTING,
+    .ForceSoftwareVP = 0,
+    .DisableLightingOnFVF = 1  // Default: disable lighting on FVF fallback
 };
 
 static BOOL g_ConfigLoaded = FALSE;
@@ -49,6 +51,12 @@ static void LoadConfig(void)
     if (g_Config.VSyncMode < 0 || g_Config.VSyncMode > 2) {
         g_Config.VSyncMode = VSYNC_USE_GAME_SETTING;
     }
+
+    // Load ForceSoftwareVP setting (0 = game setting, 1 = force software VP)
+    g_Config.ForceSoftwareVP = GetPrivateProfileIntA(CONFIG_SECTION, "force_software_vp", 0, iniPath);
+
+    // Load DisableLightingOnFVF setting (1 = disable lighting when using FVF fallback)
+    g_Config.DisableLightingOnFVF = GetPrivateProfileIntA(CONFIG_SECTION, "disable_lighting_on_fvf", 1, iniPath);
 }
 
 // ============================================================================
@@ -196,8 +204,16 @@ static HRESULT WINAPI Direct3D8_CreateDevice(IDirect3D8 *This, UINT Adapter, D3D
     // Apply VSync setting from config
     ApplyVSyncSetting(&params9);
 
+    // Apply software vertex processing if configured
+    DWORD modifiedBehaviorFlags = BehaviorFlags;
+    if (g_Config.ForceSoftwareVP) {
+        // Remove hardware VP flags and add software VP
+        modifiedBehaviorFlags &= ~(D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_MIXED_VERTEXPROCESSING);
+        modifiedBehaviorFlags |= D3DCREATE_SOFTWARE_VERTEXPROCESSING;
+    }
+
     IDirect3DDevice9 *pDevice9 = NULL;
-    HRESULT hr = IDirect3D9_CreateDevice(self->pD3D9, Adapter, DeviceType, hFocusWindow, BehaviorFlags, &params9, &pDevice9);
+    HRESULT hr = IDirect3D9_CreateDevice(self->pD3D9, Adapter, DeviceType, hFocusWindow, modifiedBehaviorFlags, &params9, &pDevice9);
 
     if (SUCCEEDED(hr)) {
         // Convert back any modified parameters

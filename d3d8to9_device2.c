@@ -798,6 +798,13 @@ HRESULT WINAPI Direct3DDevice8_SetVertexShader(IDirect3DDevice8 *This, DWORD Han
 
         // No shader - use FVF fallback for fixed-function pipeline
         IDirect3DDevice9_SetVertexShader(self->pDevice9, NULL);
+
+        // Optionally disable lighting when using FVF fallback
+        // This prevents black screen when shaders fail to load
+        if (g_Config.DisableLightingOnFVF) {
+            IDirect3DDevice9_SetRenderState(self->pDevice9, D3DRS_LIGHTING, FALSE);
+        }
+
         if (pInfo->FVF != 0) {
             // Use generated FVF
             IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, NULL);
