@@ -32,12 +32,10 @@ static HANDLE g_hTimer = NULL;
 static BOOL g_useHighResTimer = FALSE;
 
 static PFN_Present Real_Present = NULL;
-static BYTE g_originalBytes[5];
-static void* g_presentAddr = NULL;
+static void** g_presentVtableEntry = NULL;
 
 static PFN_CreateDevice Real_CreateDevice = NULL;
-static BYTE g_createDeviceOriginal[5];
-static void* g_createDeviceAddr = NULL;
+static void** g_createDeviceVtableEntry = NULL;
 
 static HRESULT WINAPI Hooked_Present(IDirect3DDevice8*, const RECT*, const RECT*, HWND, void*);
 static HRESULT WINAPI Hooked_CreateDevice(IDirect3D8*, UINT, DWORD, HWND, DWORD, void*, IDirect3DDevice8**);
@@ -47,8 +45,12 @@ static void LoadConfig(void) {
     GetModuleFileNameA(NULL, path, MAX_PATH);
     char *lastSlash = strrchr(path, '\\');
     if (lastSlash) {
-        strcpy(lastSlash + 1, "d3d8_limiter.ini");
-        g_targetFPS = GetPrivateProfileIntA("limiter", "fps", 60, path);
+        size_t prefix_len = lastSlash - path + 1;
+        // Ensure buffer has space for "d3d8_limiter.ini" (16 chars + null terminator)
+        if (prefix_len + 16 < MAX_PATH) {
+            strcpy(lastSlash + 1, "d3d8_limiter.ini");
+            g_targetFPS = GetPrivateProfileIntA("limiter", "fps", 60, path);
+        }
     }
 }
 
@@ -143,7 +145,7 @@ static void DoFrameLimit(void) {
     g_nextFrameTime += (LONGLONG)g_targetFrameTime;
 
     // Prevent catch-up stutter when falling behind
-    QueryPerformanceCounter(&now);
+    // 'now' already contains the latest counter value from the busy-wait loop above
     LONGLONG halfFrame = (LONGLONG)(g_targetFrameTime * 0.5);
     if (now.QuadPart > g_nextFrameTime + halfFrame) {
         g_nextFrameTime = now.QuadPart;
@@ -151,24 +153,8 @@ static void DoFrameLimit(void) {
 }
 
 static HRESULT CallOriginalPresent(IDirect3DDevice8 *This, const RECT *src, const RECT *dst, HWND hwnd, void *dirty) {
-    DWORD oldProtect;
-    HRESULT hr;
-
-    VirtualProtect(g_presentAddr, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
-    memcpy(g_presentAddr, g_originalBytes, 5);
-    VirtualProtect(g_presentAddr, 5, oldProtect, &oldProtect);
-
-    hr = Real_Present(This, src, dst, hwnd, dirty);
-
-    VirtualProtect(g_presentAddr, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
-    BYTE jmp[5];
-    jmp[0] = 0xE9;
-    DWORD rel = (DWORD)((BYTE*)Hooked_Present - (BYTE*)g_presentAddr - 5);
-    memcpy(&jmp[1], &rel, 4);
-    memcpy(g_presentAddr, jmp, 5);
-    VirtualProtect(g_presentAddr, 5, oldProtect, &oldProtect);
-
-    return hr;
+    // vtable hooking: simply call the saved original function pointer
+    return Real_Present(This, src, dst, hwnd, dirty);
 }
 
 static HRESULT WINAPI Hooked_Present(IDirect3DDevice8 *This, const RECT *src, const RECT *dst, HWND hwnd, void *dirty) {
@@ -181,43 +167,20 @@ static void InstallPresentHook(IDirect3DDevice8 *device) {
     InitFrameLimiter();
 
     void **vtbl = device->lpVtbl;
-    g_presentAddr = vtbl[15];
-    Real_Present = (PFN_Present)g_presentAddr;
+    g_presentVtableEntry = &vtbl[15];
+    Real_Present = (PFN_Present)vtbl[15];
 
-    memcpy(g_originalBytes, g_presentAddr, 5);
-
+    // Modify vtable entry directly (more efficient than inline hooking)
     DWORD oldProtect;
-    VirtualProtect(g_presentAddr, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
-
-    BYTE jmp[5];
-    jmp[0] = 0xE9;
-    DWORD rel = (DWORD)((BYTE*)Hooked_Present - (BYTE*)g_presentAddr - 5);
-    memcpy(&jmp[1], &rel, 4);
-    memcpy(g_presentAddr, jmp, 5);
-
-    VirtualProtect(g_presentAddr, 5, oldProtect, &oldProtect);
+    VirtualProtect(g_presentVtableEntry, sizeof(void*), PAGE_READWRITE, &oldProtect);
+    *g_presentVtableEntry = (void*)Hooked_Present;
+    VirtualProtect(g_presentVtableEntry, sizeof(void*), oldProtect, &oldProtect);
 }
 
 static HRESULT CallOriginalCreateDevice(IDirect3D8 *This, UINT adapter, DWORD type, HWND hwnd,
                                         DWORD flags, void *params, IDirect3DDevice8 **device) {
-    DWORD oldProtect;
-    HRESULT hr;
-
-    VirtualProtect(g_createDeviceAddr, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
-    memcpy(g_createDeviceAddr, g_createDeviceOriginal, 5);
-    VirtualProtect(g_createDeviceAddr, 5, oldProtect, &oldProtect);
-
-    hr = Real_CreateDevice(This, adapter, type, hwnd, flags, params, device);
-
-    VirtualProtect(g_createDeviceAddr, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
-    BYTE jmp[5];
-    jmp[0] = 0xE9;
-    DWORD rel = (DWORD)((BYTE*)Hooked_CreateDevice - (BYTE*)g_createDeviceAddr - 5);
-    memcpy(&jmp[1], &rel, 4);
-    memcpy(g_createDeviceAddr, jmp, 5);
-    VirtualProtect(g_createDeviceAddr, 5, oldProtect, &oldProtect);
-
-    return hr;
+    // vtable hooking: simply call the saved original function pointer
+    return Real_CreateDevice(This, adapter, type, hwnd, flags, params, device);
 }
 
 static HRESULT WINAPI Hooked_CreateDevice(IDirect3D8 *This, UINT adapter, DWORD type, HWND hwnd,
@@ -233,21 +196,14 @@ static HRESULT WINAPI Hooked_CreateDevice(IDirect3D8 *This, UINT adapter, DWORD 
 
 static void InstallCreateDeviceHook(IDirect3D8 *d3d8) {
     void **vtbl = d3d8->lpVtbl;
-    g_createDeviceAddr = vtbl[15];
-    Real_CreateDevice = (PFN_CreateDevice)g_createDeviceAddr;
+    g_createDeviceVtableEntry = &vtbl[15];
+    Real_CreateDevice = (PFN_CreateDevice)vtbl[15];
 
-    memcpy(g_createDeviceOriginal, g_createDeviceAddr, 5);
-
+    // Modify vtable entry directly (more efficient than inline hooking)
     DWORD oldProtect;
-    VirtualProtect(g_createDeviceAddr, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
-
-    BYTE jmp[5];
-    jmp[0] = 0xE9;
-    DWORD rel = (DWORD)((BYTE*)Hooked_CreateDevice - (BYTE*)g_createDeviceAddr - 5);
-    memcpy(&jmp[1], &rel, 4);
-    memcpy(g_createDeviceAddr, jmp, 5);
-
-    VirtualProtect(g_createDeviceAddr, 5, oldProtect, &oldProtect);
+    VirtualProtect(g_createDeviceVtableEntry, sizeof(void*), PAGE_READWRITE, &oldProtect);
+    *g_createDeviceVtableEntry = (void*)Hooked_CreateDevice;
+    VirtualProtect(g_createDeviceVtableEntry, sizeof(void*), oldProtect, &oldProtect);
 }
 
 __declspec(dllexport) IDirect3D8* WINAPI Wrapper_Direct3DCreate8(UINT SDKVersion) {
