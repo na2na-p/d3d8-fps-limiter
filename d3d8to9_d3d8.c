@@ -2,6 +2,8 @@
  * D3D8 to D3D9 Converter - IDirect3D8 Implementation
  */
 
+// Define INITGUID before including headers to instantiate GUIDs
+#include <initguid.h>
 #include "d3d8to9_base.h"
 #include <stdio.h>
 
