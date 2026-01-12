@@ -29,8 +29,9 @@
 #define BUSYWAIT_MARGIN_MS        0.5   // Margin before final busy-wait (high-res timer)
 #define SLEEP_MARGIN_MS           2.0   // Margin before final busy-wait (fallback)
 #define TIMER_RESOLUTION_MS       1     // timeBeginPeriod resolution
-#define CATCHUP_THRESHOLD         2.0   // Gradual adjustment if behind by this many frames
-#define MAX_CATCHUP_FRAMES        5.0   // Hard reset if behind by this many frames
+#define CATCHUP_THRESHOLD         4.0   // Gradual adjustment if behind by this many frames
+#define MAX_CATCHUP_FRAMES        10.0  // Hard reset if behind by this many frames
+#define CATCHUP_RATE              8     // Divide behindBy by this for gentle adjustment
 
 // Configuration file
 #define CONFIG_FILENAME           "d3d8_limiter.ini"
@@ -186,6 +187,8 @@ static void DoFrameLimit_HighRes(void) {
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
+    // Only wait if we're ahead of schedule
+    // If we're behind, skip waiting entirely to avoid making things worse
     if (remaining > 0) {
         // Use pre-calculated margin to avoid computation
         if (remaining > g_busywaitMargin) {
@@ -201,23 +204,27 @@ static void DoFrameLimit_HighRes(void) {
             _mm_pause();
             QueryPerformanceCounter(&now);
         } while (now.QuadPart < g_nextFrameTime);
+    } else {
+        // We're behind schedule - get current time for accurate adjustment
+        QueryPerformanceCounter(&now);
     }
 
     // Advance to next frame (use pre-calculated ticks, no type conversion)
     g_nextFrameTime += g_targetFrameTicks;
 
-    // Smooth catch-up logic to prevent stutter during load spikes
+    // Very smooth catch-up logic to prevent stutter during load spikes
     LONGLONG behindBy = now.QuadPart - g_nextFrameTime;
     if (behindBy > 0) {
         if (behindBy > g_maxCatchupThreshold) {
-            // Far behind: hard reset (only for extreme cases)
+            // Extremely far behind: hard reset (only for severe freezes)
             g_nextFrameTime = now.QuadPart;
         } else if (behindBy > g_catchupThreshold) {
-            // Moderately behind: gradual adjustment (advance halfway to current time)
-            // This prevents sudden jumps while still recovering from temporary load
-            g_nextFrameTime += behindBy / 2;
+            // Moderately behind: very gradual adjustment over multiple frames
+            // Dividing by CATCHUP_RATE (8) means adjusting 12.5% per frame
+            // This takes 8 frames to fully recover, preventing any sudden jumps
+            g_nextFrameTime += behindBy / CATCHUP_RATE;
         }
-        // else: slightly behind, let it naturally catch up (no adjustment)
+        // else: slightly behind (< 4 frames), let it naturally catch up (no adjustment)
     }
 }
 
@@ -228,6 +235,8 @@ static void DoFrameLimit_Fallback(void) {
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
+    // Only wait if we're ahead of schedule
+    // If we're behind, skip waiting entirely to avoid making things worse
     if (remaining > 0) {
         double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
         if (remainingMs > SLEEP_MARGIN_MS) {
@@ -238,23 +247,27 @@ static void DoFrameLimit_Fallback(void) {
             _mm_pause();
             QueryPerformanceCounter(&now);
         } while (now.QuadPart < g_nextFrameTime);
+    } else {
+        // We're behind schedule - get current time for accurate adjustment
+        QueryPerformanceCounter(&now);
     }
 
     // Advance to next frame (use pre-calculated ticks, no type conversion)
     g_nextFrameTime += g_targetFrameTicks;
 
-    // Smooth catch-up logic to prevent stutter during load spikes
+    // Very smooth catch-up logic to prevent stutter during load spikes
     LONGLONG behindBy = now.QuadPart - g_nextFrameTime;
     if (behindBy > 0) {
         if (behindBy > g_maxCatchupThreshold) {
-            // Far behind: hard reset (only for extreme cases)
+            // Extremely far behind: hard reset (only for severe freezes)
             g_nextFrameTime = now.QuadPart;
         } else if (behindBy > g_catchupThreshold) {
-            // Moderately behind: gradual adjustment (advance halfway to current time)
-            // This prevents sudden jumps while still recovering from temporary load
-            g_nextFrameTime += behindBy / 2;
+            // Moderately behind: very gradual adjustment over multiple frames
+            // Dividing by CATCHUP_RATE (8) means adjusting 12.5% per frame
+            // This takes 8 frames to fully recover, preventing any sudden jumps
+            g_nextFrameTime += behindBy / CATCHUP_RATE;
         }
-        // else: slightly behind, let it naturally catch up (no adjustment)
+        // else: slightly behind (< 4 frames), let it naturally catch up (no adjustment)
     }
 }
 
