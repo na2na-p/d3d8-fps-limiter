@@ -140,11 +140,12 @@ static void DoFrameLimit_HighRes(void) {
         return;
     }
 
-    if (g_nextFrameTime < now.QuadPart) {
-        g_nextFrameTime = now.QuadPart;
+    g_nextFrameTime += g_targetFrameTicks;
+
+    if (g_nextFrameTime <= now.QuadPart) {
+        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
     }
 
-    g_nextFrameTime += g_targetFrameTicks;
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     if (remaining > g_busywaitMargin) {
@@ -170,11 +171,12 @@ static void DoFrameLimit_Fallback(void) {
         return;
     }
 
-    if (g_nextFrameTime < now.QuadPart) {
-        g_nextFrameTime = now.QuadPart;
+    g_nextFrameTime += g_targetFrameTicks;
+
+    if (g_nextFrameTime <= now.QuadPart) {
+        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
     }
 
-    g_nextFrameTime += g_targetFrameTicks;
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
