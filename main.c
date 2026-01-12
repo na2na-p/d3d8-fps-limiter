@@ -1,9 +1,17 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <mmsystem.h>
-#include <intrin.h>
 
-#pragma comment(lib, "winmm.lib")
+// Compiler-specific settings
+#ifdef _MSC_VER
+    #include <intrin.h>
+    #define FORCE_INLINE static __forceinline
+    #pragma comment(lib, "winmm.lib")
+#else
+    // GCC/MinGW
+    #include <x86intrin.h>
+    #define FORCE_INLINE static inline __attribute__((always_inline))
+#endif
 
 // ============================================================================
 // Constants
@@ -54,7 +62,8 @@ static PFN_Direct3DCreate8 Real_Direct3DCreate8 = NULL;
 // Frame limiter state
 static LARGE_INTEGER g_freq;
 static LONGLONG g_nextFrameTime;
-static double g_targetFrameTime;
+static LONGLONG g_targetFrameTicks = 0;  // Pre-calculated frame time in QPC ticks
+static LONGLONG g_catchupThreshold = 0;  // Pre-calculated catch-up threshold
 static int g_targetFPS = DEFAULT_FPS;
 static BOOL g_initialized = FALSE;
 
@@ -62,6 +71,10 @@ static BOOL g_initialized = FALSE;
 static BOOL g_timerResolutionSet = FALSE;
 static HANDLE g_hTimer = NULL;
 static BOOL g_useHighResTimer = FALSE;
+static LONGLONG g_busywaitMargin = 0;  // Pre-calculated margin for busy-wait
+
+// Frame limiter function pointer (avoids branch in hot path)
+static void (*DoFrameLimit_Impl)(void) = NULL;
 
 // Hook state
 static PFN_Present Real_Present = NULL;
@@ -73,6 +86,8 @@ static void** g_createDeviceVtableEntry = NULL;
 // Forward Declarations
 // ============================================================================
 
+static void DoFrameLimit_HighRes(void);
+static void DoFrameLimit_Fallback(void);
 static HRESULT WINAPI Hooked_Present(IDirect3DDevice8*, const RECT*, const RECT*, HWND, void*);
 static HRESULT WINAPI Hooked_CreateDevice(IDirect3D8*, UINT, DWORD, HWND, DWORD, void*, IDirect3DDevice8**);
 
@@ -113,7 +128,11 @@ static void InitFrameLimiter(void) {
     LoadConfig();
 
     if (g_targetFPS > 0) {
-        g_targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
+        double targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
+        // Pre-calculate frame time in ticks (avoids conversion every frame)
+        g_targetFrameTicks = (LONGLONG)targetFrameTime;
+        // Pre-calculate catch-up threshold (used every frame)
+        g_catchupThreshold = (LONGLONG)(targetFrameTime * CATCHUP_THRESHOLD);
     }
 
     // Try high-resolution waitable timer (Windows 10 1803+)
@@ -130,11 +149,17 @@ static void InitFrameLimiter(void) {
         }
     }
 
-    // Fallback: use timeBeginPeriod for Sleep accuracy
-    if (!g_useHighResTimer) {
+    // Select appropriate frame limiter implementation and pre-calculate margin
+    if (g_useHighResTimer && g_hTimer) {
+        // High-resolution timer: pre-calculate margin for busy-wait
+        g_busywaitMargin = (LONGLONG)(g_freq.QuadPart * BUSYWAIT_MARGIN_MS / 1000.0);
+        DoFrameLimit_Impl = DoFrameLimit_HighRes;
+    } else {
+        // Fallback: use timeBeginPeriod for Sleep accuracy
         if (timeBeginPeriod(TIMER_RESOLUTION_MS) == TIMERR_NOERROR) {
             g_timerResolutionSet = TRUE;
         }
+        DoFrameLimit_Impl = DoFrameLimit_Fallback;
     }
 
     g_initialized = TRUE;
@@ -151,54 +176,71 @@ static void ShutdownFrameLimiter(void) {
     }
 }
 
-static void DoFrameLimit(void) {
-    if (g_targetFPS <= 0) return;
-
+// High-resolution timer implementation (no branching in hot path)
+static void DoFrameLimit_HighRes(void) {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     if (remaining > 0) {
-        if (g_useHighResTimer && g_hTimer) {
-            // High-resolution timer path
+        // Use pre-calculated margin to avoid computation
+        if (remaining > g_busywaitMargin) {
             // Convert QPC ticks to 100-nanosecond intervals (negative = relative time)
-            // Leave margin for final busy-wait to achieve sub-millisecond precision
-            LONGLONG margin = (LONGLONG)(g_freq.QuadPart * BUSYWAIT_MARGIN_MS / 1000.0);
-            if (remaining > margin) {
-                LARGE_INTEGER dueTime;
-                dueTime.QuadPart = -(LONGLONG)((remaining - margin) * 10000000LL / g_freq.QuadPart);
-                if (SetWaitableTimer(g_hTimer, &dueTime, 0, NULL, NULL, FALSE)) {
-                    WaitForSingleObject(g_hTimer, INFINITE);
-                }
+            LARGE_INTEGER dueTime;
+            dueTime.QuadPart = -(LONGLONG)((remaining - g_busywaitMargin) * 10000000LL / g_freq.QuadPart);
+            if (SetWaitableTimer(g_hTimer, &dueTime, 0, NULL, NULL, FALSE)) {
+                WaitForSingleObject(g_hTimer, INFINITE);
             }
-            // Final busy-wait for precision
-            do {
-                _mm_pause();
-                QueryPerformanceCounter(&now);
-            } while (now.QuadPart < g_nextFrameTime);
-        } else {
-            // Fallback: Sleep + busy-wait
-            double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
-            if (remainingMs > SLEEP_MARGIN_MS) {
-                Sleep((DWORD)(remainingMs - SLEEP_MARGIN_MS));
-            }
-            // Final busy-wait for precision
-            do {
-                _mm_pause();
-                QueryPerformanceCounter(&now);
-            } while (now.QuadPart < g_nextFrameTime);
         }
+        // Final busy-wait for sub-millisecond precision
+        do {
+            _mm_pause();
+            QueryPerformanceCounter(&now);
+        } while (now.QuadPart < g_nextFrameTime);
     }
 
-    // Advance to next frame
-    g_nextFrameTime += (LONGLONG)g_targetFrameTime;
+    // Advance to next frame (use pre-calculated ticks, no type conversion)
+    g_nextFrameTime += g_targetFrameTicks;
 
-    // Prevent catch-up stutter when falling behind
-    // 'now' already contains the latest counter value from the busy-wait loop above
-    LONGLONG catchupThreshold = (LONGLONG)(g_targetFrameTime * CATCHUP_THRESHOLD);
-    if (now.QuadPart > g_nextFrameTime + catchupThreshold) {
+    // Prevent catch-up stutter when falling behind (use pre-calculated threshold)
+    if (now.QuadPart > g_nextFrameTime + g_catchupThreshold) {
         g_nextFrameTime = now.QuadPart;
+    }
+}
+
+// Fallback implementation using Sleep (no branching in hot path)
+static void DoFrameLimit_Fallback(void) {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+
+    LONGLONG remaining = g_nextFrameTime - now.QuadPart;
+
+    if (remaining > 0) {
+        double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
+        if (remainingMs > SLEEP_MARGIN_MS) {
+            Sleep((DWORD)(remainingMs - SLEEP_MARGIN_MS));
+        }
+        // Final busy-wait for precision
+        do {
+            _mm_pause();
+            QueryPerformanceCounter(&now);
+        } while (now.QuadPart < g_nextFrameTime);
+    }
+
+    // Advance to next frame (use pre-calculated ticks, no type conversion)
+    g_nextFrameTime += g_targetFrameTicks;
+
+    // Prevent catch-up stutter when falling behind (use pre-calculated threshold)
+    if (now.QuadPart > g_nextFrameTime + g_catchupThreshold) {
+        g_nextFrameTime = now.QuadPart;
+    }
+}
+
+// Main frame limiter entry point (inline wrapper)
+FORCE_INLINE void DoFrameLimit(void) {
+    if (g_targetFPS > 0 && DoFrameLimit_Impl) {
+        DoFrameLimit_Impl();
     }
 }
 
