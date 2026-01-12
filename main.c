@@ -144,7 +144,7 @@ static void DoFrameLimit_HighRes(void) {
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
-    if (remaining < 0 || remaining > g_targetFrameTicks * 3 / 2) {
+    if (remaining < 0 || remaining > (g_targetFrameTicks * 3) / 2) {
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
         remaining = g_targetFrameTicks;
     }
@@ -176,7 +176,7 @@ static void DoFrameLimit_Fallback(void) {
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
-    if (remaining < 0 || remaining > g_targetFrameTicks * 3 / 2) {
+    if (remaining < 0 || remaining > (g_targetFrameTicks * 3) / 2) {
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
         remaining = g_targetFrameTicks;
     }
