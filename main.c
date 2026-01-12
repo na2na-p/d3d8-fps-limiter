@@ -140,10 +140,11 @@ static void DoFrameLimit_HighRes(void) {
         return;
     }
 
-    while (g_nextFrameTime <= now.QuadPart) {
-        g_nextFrameTime += g_targetFrameTicks;
+    if (g_nextFrameTime < now.QuadPart) {
+        g_nextFrameTime = now.QuadPart;
     }
 
+    g_nextFrameTime += g_targetFrameTicks;
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     if (remaining > g_busywaitMargin) {
@@ -158,8 +159,6 @@ static void DoFrameLimit_HighRes(void) {
         _mm_pause();
         QueryPerformanceCounter(&now);
     } while (now.QuadPart < g_nextFrameTime);
-
-    g_nextFrameTime += g_targetFrameTicks;
 }
 
 static void DoFrameLimit_Fallback(void) {
@@ -171,10 +170,11 @@ static void DoFrameLimit_Fallback(void) {
         return;
     }
 
-    while (g_nextFrameTime <= now.QuadPart) {
-        g_nextFrameTime += g_targetFrameTicks;
+    if (g_nextFrameTime < now.QuadPart) {
+        g_nextFrameTime = now.QuadPart;
     }
 
+    g_nextFrameTime += g_targetFrameTicks;
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
@@ -186,8 +186,6 @@ static void DoFrameLimit_Fallback(void) {
         _mm_pause();
         QueryPerformanceCounter(&now);
     } while (now.QuadPart < g_nextFrameTime);
-
-    g_nextFrameTime += g_targetFrameTicks;
 }
 
 FORCE_INLINE void DoFrameLimit(void) {
