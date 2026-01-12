@@ -43,6 +43,23 @@
 // D3D8 SDK Version
 #define D3D8_SDK_VERSION 220
 
+// FVF macros (ensure they are defined)
+#ifndef D3DFVF_TEXCOUNT_SHIFT
+#define D3DFVF_TEXCOUNT_SHIFT 8
+#endif
+#ifndef D3DFVF_TEXCOORDSIZE1
+#define D3DFVF_TEXCOORDSIZE1(i) (3 << ((i)*2 + 16))
+#endif
+#ifndef D3DFVF_TEXCOORDSIZE2
+#define D3DFVF_TEXCOORDSIZE2(i) (0)
+#endif
+#ifndef D3DFVF_TEXCOORDSIZE3
+#define D3DFVF_TEXCOORDSIZE3(i) (1 << ((i)*2 + 16))
+#endif
+#ifndef D3DFVF_TEXCOORDSIZE4
+#define D3DFVF_TEXCOORDSIZE4(i) (2 << ((i)*2 + 16))
+#endif
+
 // ============================================================================
 // D3D8-specific Structures (different from D3D9)
 // ============================================================================

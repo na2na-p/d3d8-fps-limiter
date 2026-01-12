@@ -420,6 +420,121 @@ static DWORD AddVertexShaderInfo(Direct3DDevice8 *self, VertexShaderInfo *pInfo)
     return handle;
 }
 
+// Convert vs_1_0 shader to vs_1_1 by patching version token
+static DWORD* ConvertShaderVersion(const DWORD *pFunction, DWORD *pOutSize)
+{
+    if (!pFunction) return NULL;
+
+    // Count shader size
+    const DWORD *pToken = pFunction;
+    while (*pToken != 0x0000FFFF) { // D3DVS_END token
+        pToken++;
+        // Safety limit
+        if ((pToken - pFunction) > 4096) return NULL;
+    }
+    pToken++; // Include END token
+
+    DWORD sizeInDwords = (DWORD)(pToken - pFunction);
+    if (pOutSize) *pOutSize = sizeInDwords;
+
+    // Allocate copy
+    DWORD *pCopy = (DWORD *)HeapAlloc(GetProcessHeap(), 0, sizeInDwords * sizeof(DWORD));
+    if (!pCopy) return NULL;
+
+    // Copy shader
+    memcpy(pCopy, pFunction, sizeInDwords * sizeof(DWORD));
+
+    // Patch version: vs_1_0 (0xFFFE0100) -> vs_1_1 (0xFFFE0101)
+    if (pCopy[0] == 0xFFFE0100) {
+        pCopy[0] = 0xFFFE0101;
+    }
+
+    return pCopy;
+}
+
+// Generate FVF from vertex declaration elements
+static DWORD GenerateFVFFromDeclaration(const DWORD *pDeclaration)
+{
+    if (!pDeclaration) return 0;
+
+    DWORD fvf = 0;
+    int texCoordCount = 0;
+    DWORD texCoordSizes[8] = {0};
+
+    const DWORD *pToken = pDeclaration;
+    while (*pToken != 0xFFFFFFFF) {
+        DWORD token = *pToken++;
+        DWORD tokenType = (token & D3DVSD_TOKENTYPEMASK) >> D3DVSD_TOKENTYPESHIFT;
+
+        if (tokenType == D3DVSD_TOKEN_STREAMDATA) {
+            DWORD loadType = (token & D3DVSD_DATALOADTYPEMASK) >> D3DVSD_DATALOADTYPESHIFT;
+            if (loadType == 0) {
+                DWORD vertexReg = (token & D3DVSD_VERTEXREGMASK) >> D3DVSD_VERTEXREGSHIFT;
+                DWORD dataType = (token & D3DVSD_DATATYPEMASK) >> D3DVSD_DATATYPESHIFT;
+
+                switch (vertexReg) {
+                    case D3DVSDE_POSITION:
+                        if (dataType == D3DVSDT_FLOAT4) {
+                            fvf |= D3DFVF_XYZRHW;
+                        } else {
+                            fvf |= D3DFVF_XYZ;
+                        }
+                        break;
+                    case D3DVSDE_BLENDWEIGHT:
+                        // Blend weights indicate transformed and lit vertices
+                        break;
+                    case D3DVSDE_NORMAL:
+                        fvf |= D3DFVF_NORMAL;
+                        break;
+                    case D3DVSDE_DIFFUSE:
+                        fvf |= D3DFVF_DIFFUSE;
+                        break;
+                    case D3DVSDE_SPECULAR:
+                        fvf |= D3DFVF_SPECULAR;
+                        break;
+                    case D3DVSDE_TEXCOORD0:
+                    case D3DVSDE_TEXCOORD1:
+                    case D3DVSDE_TEXCOORD2:
+                    case D3DVSDE_TEXCOORD3:
+                    case D3DVSDE_TEXCOORD4:
+                    case D3DVSDE_TEXCOORD5:
+                    case D3DVSDE_TEXCOORD6:
+                    case D3DVSDE_TEXCOORD7:
+                        {
+                            int texIdx = vertexReg - D3DVSDE_TEXCOORD0;
+                            if (texIdx >= texCoordCount) {
+                                texCoordCount = texIdx + 1;
+                            }
+                            // Determine texture coordinate size (default D3DFVF_TEXCOORDSIZE2)
+                            switch (dataType) {
+                                case D3DVSDT_FLOAT1: texCoordSizes[texIdx] = D3DFVF_TEXCOORDSIZE1(texIdx); break;
+                                case D3DVSDT_FLOAT2: texCoordSizes[texIdx] = D3DFVF_TEXCOORDSIZE2(texIdx); break;
+                                case D3DVSDT_FLOAT3: texCoordSizes[texIdx] = D3DFVF_TEXCOORDSIZE3(texIdx); break;
+                                case D3DVSDT_FLOAT4: texCoordSizes[texIdx] = D3DFVF_TEXCOORDSIZE4(texIdx); break;
+                                default: texCoordSizes[texIdx] = D3DFVF_TEXCOORDSIZE2(texIdx); break;
+                            }
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+        } else if (tokenType == D3DVSD_TOKEN_END) {
+            break;
+        }
+    }
+
+    // Add texture coordinate count
+    if (texCoordCount > 0) {
+        fvf |= (texCoordCount << D3DFVF_TEXCOUNT_SHIFT);
+        for (int i = 0; i < texCoordCount; i++) {
+            fvf |= texCoordSizes[i];
+        }
+    }
+
+    return fvf;
+}
+
 HRESULT WINAPI Direct3DDevice8_CreateVertexShader(IDirect3DDevice8 *This, const DWORD *pDeclaration, const DWORD *pFunction, DWORD *pHandle, DWORD Usage)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
@@ -443,18 +558,28 @@ HRESULT WINAPI Direct3DDevice8_CreateVertexShader(IDirect3DDevice8 *This, const 
     if (pFunction) {
         // Check shader version - D3D8 shaders start with version token
         DWORD shaderVersion = pFunction[0];
+        DWORD *pConvertedShader = NULL;
 
-        // Try to create the vertex shader
+        // First try with original shader
         hr = IDirect3DDevice9_CreateVertexShader(self->pDevice9, pFunction, &pInfo->pShader9);
-        if (FAILED(hr)) {
-            // Shader creation failed - continue with declaration only
-            // This allows the game to run even if the shader is incompatible
-            pInfo->pShader9 = NULL;
 
-            // For vs_1_0 shaders (0xFFFE0100), D3D9 might not support them on all hardware
-            // We'll continue with just the vertex declaration
-            (void)shaderVersion; // Suppress unused warning
+        // If failed and it's vs_1_0, try converting to vs_1_1
+        if (FAILED(hr) && shaderVersion == 0xFFFE0100) {
+            pConvertedShader = ConvertShaderVersion(pFunction, NULL);
+            if (pConvertedShader) {
+                hr = IDirect3DDevice9_CreateVertexShader(self->pDevice9, pConvertedShader, &pInfo->pShader9);
+                HeapFree(GetProcessHeap(), 0, pConvertedShader);
+            }
         }
+
+        if (FAILED(hr)) {
+            // Shader creation still failed - generate FVF for fixed-function fallback
+            pInfo->pShader9 = NULL;
+            pInfo->FVF = GenerateFVFFromDeclaration(pDeclaration);
+        }
+    } else {
+        // No shader function provided, generate FVF from declaration
+        pInfo->FVF = GenerateFVFFromDeclaration(pDeclaration);
     }
 
     // Add to handle list
@@ -482,7 +607,7 @@ HRESULT WINAPI Direct3DDevice8_SetVertexShader(IDirect3DDevice8 *This, DWORD Han
         return D3D_OK;
     }
 
-    // Check for FVF (high bit set)
+    // Check for FVF (high bit set) - D3D8 FVF codes
     if (Handle & 0x80000000) {
         IDirect3DDevice9_SetVertexShader(self->pDevice9, NULL);
         IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, NULL);
@@ -494,13 +619,28 @@ HRESULT WINAPI Direct3DDevice8_SetVertexShader(IDirect3DDevice8 *This, DWORD Han
     VertexShaderInfo *pInfo = self->VertexShaderHandles[Handle - 1];
     if (!pInfo) return D3DERR_INVALIDCALL;
 
-    // Set vertex declaration first
-    if (pInfo->pDecl9) {
-        IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, pInfo->pDecl9);
+    // If we have a valid shader, use it with the declaration
+    if (pInfo->pShader9) {
+        // Set vertex declaration first
+        if (pInfo->pDecl9) {
+            IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, pInfo->pDecl9);
+        }
+        // Set vertex shader
+        return IDirect3DDevice9_SetVertexShader(self->pDevice9, pInfo->pShader9);
     }
 
-    // Set vertex shader (may be NULL if declaration-only)
-    return IDirect3DDevice9_SetVertexShader(self->pDevice9, pInfo->pShader9);
+    // No shader - use FVF fallback for fixed-function pipeline
+    IDirect3DDevice9_SetVertexShader(self->pDevice9, NULL);
+    if (pInfo->FVF != 0) {
+        // Use generated FVF
+        IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, NULL);
+        return IDirect3DDevice9_SetFVF(self->pDevice9, pInfo->FVF);
+    } else if (pInfo->pDecl9) {
+        // Fall back to declaration if FVF couldn't be generated
+        return IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, pInfo->pDecl9);
+    }
+
+    return D3D_OK;
 }
 
 HRESULT WINAPI Direct3DDevice8_GetVertexShader(IDirect3DDevice8 *This, DWORD *pHandle)

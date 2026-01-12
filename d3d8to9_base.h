@@ -20,6 +20,7 @@
 typedef struct VertexShaderInfo {
     IDirect3DVertexShader9 *pShader9;
     IDirect3DVertexDeclaration9 *pDecl9;
+    DWORD FVF;  // FVF for fixed-function fallback when shader fails
 } VertexShaderInfo;
 
 // ============================================================================
