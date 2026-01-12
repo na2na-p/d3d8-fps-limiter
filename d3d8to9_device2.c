@@ -289,27 +289,6 @@ HRESULT WINAPI Direct3DDevice8_ProcessVertices(IDirect3DDevice8 *This, UINT SrcS
 }
 
 // Shader management helpers
-static DWORD AddVertexShaderHandle(Direct3DDevice8 *self, IDirect3DVertexShader9 *pShader)
-{
-    if (self->VertexShaderCount >= self->VertexShaderCapacity) {
-        DWORD newCapacity = self->VertexShaderCapacity ? self->VertexShaderCapacity * 2 : 16;
-        void **newHandles = HeapReAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, self->VertexShaderHandles, newCapacity * sizeof(void *));
-        if (!newHandles) {
-            newHandles = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, newCapacity * sizeof(void *));
-            if (!newHandles) return 0;
-            if (self->VertexShaderHandles) {
-                memcpy(newHandles, self->VertexShaderHandles, self->VertexShaderCount * sizeof(void *));
-                HeapFree(GetProcessHeap(), 0, self->VertexShaderHandles);
-            }
-        }
-        self->VertexShaderHandles = newHandles;
-        self->VertexShaderCapacity = newCapacity;
-    }
-    DWORD handle = self->VertexShaderCount + 1;
-    self->VertexShaderHandles[self->VertexShaderCount++] = pShader;
-    return handle;
-}
-
 static DWORD AddPixelShaderHandle(Direct3DDevice8 *self, IDirect3DPixelShader9 *pShader)
 {
     if (self->PixelShaderCount >= self->PixelShaderCapacity) {
@@ -331,32 +310,155 @@ static DWORD AddPixelShaderHandle(Direct3DDevice8 *self, IDirect3DPixelShader9 *
     return handle;
 }
 
+// Convert D3D8 vertex declaration to D3D9 vertex declaration
+static HRESULT ConvertVertexDeclaration8to9(IDirect3DDevice9 *pDevice9, const DWORD *pDeclaration, IDirect3DVertexDeclaration9 **ppDecl9)
+{
+    if (!pDeclaration || !ppDecl9) return D3DERR_INVALIDCALL;
+
+    D3DVERTEXELEMENT9_DEF elements[32];
+    int elementCount = 0;
+    WORD currentStream = 0;
+    WORD currentOffset = 0;
+
+    const DWORD *pToken = pDeclaration;
+    while (*pToken != 0xFFFFFFFF && elementCount < 31) {
+        DWORD token = *pToken++;
+        DWORD tokenType = (token & D3DVSD_TOKENTYPEMASK) >> D3DVSD_TOKENTYPESHIFT;
+
+        switch (tokenType) {
+            case D3DVSD_TOKEN_NOP:
+                // Skip NOP tokens
+                break;
+
+            case D3DVSD_TOKEN_STREAM:
+                // Stream selector
+                currentStream = (WORD)((token & D3DVSD_STREAMNUMBERMASK) >> D3DVSD_STREAMNUMBERSHIFT);
+                currentOffset = 0;
+                break;
+
+            case D3DVSD_TOKEN_STREAMDATA:
+                {
+                    DWORD loadType = (token & D3DVSD_DATALOADTYPEMASK) >> D3DVSD_DATALOADTYPESHIFT;
+                    if (loadType == 0) {
+                        // Vertex data
+                        DWORD vertexReg = (token & D3DVSD_VERTEXREGMASK) >> D3DVSD_VERTEXREGSHIFT;
+                        DWORD dataType = (token & D3DVSD_DATATYPEMASK) >> D3DVSD_DATATYPESHIFT;
+
+                        elements[elementCount].Stream = currentStream;
+                        elements[elementCount].Offset = currentOffset;
+                        elements[elementCount].Type = ConvertD3D8TypeToD3D9(dataType);
+                        elements[elementCount].Method = D3DDECLMETHOD_DEFAULT;
+                        ConvertD3D8RegisterToD3D9Usage(vertexReg, &elements[elementCount].Usage, &elements[elementCount].UsageIndex);
+
+                        currentOffset += GetD3D8DataTypeSize(dataType);
+                        elementCount++;
+                    } else {
+                        // Skip data (SKIP token)
+                        DWORD skipCount = (token & D3DVSD_SKIPCOUNTMASK) >> D3DVSD_SKIPCOUNTSHIFT;
+                        currentOffset += (WORD)(skipCount * 4);
+                    }
+                }
+                break;
+
+            case D3DVSD_TOKEN_TESSELLATOR:
+                // Tessellator data - skip for now
+                break;
+
+            case D3DVSD_TOKEN_CONSTMEM:
+                // Constant memory load - skip the constant data
+                {
+                    DWORD count = ((token >> 25) & 0x7F);
+                    pToken += count * 4; // Skip constant values
+                }
+                break;
+
+            case D3DVSD_TOKEN_EXT:
+                // Extension token - skip
+                {
+                    DWORD count = ((token >> 24) & 0x1F);
+                    pToken += count;
+                }
+                break;
+
+            case D3DVSD_TOKEN_END:
+                goto done;
+
+            default:
+                break;
+        }
+    }
+
+done:
+    // Add end element
+    elements[elementCount].Stream = 0xFF;
+    elements[elementCount].Offset = 0;
+    elements[elementCount].Type = D3DDECLTYPE_UNUSED;
+    elements[elementCount].Method = 0;
+    elements[elementCount].Usage = 0;
+    elements[elementCount].UsageIndex = 0;
+
+    // Create D3D9 vertex declaration
+    return IDirect3DDevice9_CreateVertexDeclaration(pDevice9, (const D3DVERTEXELEMENT9 *)elements, ppDecl9);
+}
+
+// Add vertex shader with info
+static DWORD AddVertexShaderInfo(Direct3DDevice8 *self, VertexShaderInfo *pInfo)
+{
+    if (self->VertexShaderCount >= self->VertexShaderCapacity) {
+        DWORD newCapacity = self->VertexShaderCapacity ? self->VertexShaderCapacity * 2 : 16;
+        VertexShaderInfo **newHandles = (VertexShaderInfo **)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, newCapacity * sizeof(VertexShaderInfo *));
+        if (!newHandles) return 0;
+        if (self->VertexShaderHandles) {
+            memcpy(newHandles, self->VertexShaderHandles, self->VertexShaderCount * sizeof(VertexShaderInfo *));
+            HeapFree(GetProcessHeap(), 0, self->VertexShaderHandles);
+        }
+        self->VertexShaderHandles = newHandles;
+        self->VertexShaderCapacity = newCapacity;
+    }
+    DWORD handle = self->VertexShaderCount + 1;
+    self->VertexShaderHandles[self->VertexShaderCount++] = pInfo;
+    return handle;
+}
+
 HRESULT WINAPI Direct3DDevice8_CreateVertexShader(IDirect3DDevice8 *This, const DWORD *pDeclaration, const DWORD *pFunction, DWORD *pHandle, DWORD Usage)
 {
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
-    (void)pDeclaration; (void)Usage;
+    (void)Usage;
 
     if (!pHandle) return D3DERR_INVALIDCALL;
+    if (!pDeclaration) return D3DERR_INVALIDCALL;
 
-    // D3D8 uses FVF or declaration + shader bytecode
-    // For FVF-only usage
-    if (!pFunction) {
-        // Just use FVF, no actual shader
-        *pHandle = 0;
-        return D3D_OK;
+    // Allocate shader info structure
+    VertexShaderInfo *pInfo = (VertexShaderInfo *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(VertexShaderInfo));
+    if (!pInfo) return E_OUTOFMEMORY;
+
+    // Convert D3D8 vertex declaration to D3D9
+    HRESULT hr = ConvertVertexDeclaration8to9(self->pDevice9, pDeclaration, &pInfo->pDecl9);
+    if (FAILED(hr)) {
+        HeapFree(GetProcessHeap(), 0, pInfo);
+        return hr;
     }
 
-    IDirect3DVertexShader9 *pShader9 = NULL;
-    HRESULT hr = IDirect3DDevice9_CreateVertexShader(self->pDevice9, pFunction, &pShader9);
-
-    if (SUCCEEDED(hr)) {
-        *pHandle = AddVertexShaderHandle(self, pShader9);
-        if (*pHandle == 0) {
-            IDirect3DVertexShader9_Release(pShader9);
-            return E_OUTOFMEMORY;
+    // Create vertex shader if function is provided
+    if (pFunction) {
+        hr = IDirect3DDevice9_CreateVertexShader(self->pDevice9, pFunction, &pInfo->pShader9);
+        if (FAILED(hr)) {
+            if (pInfo->pDecl9) IDirect3DVertexDeclaration9_Release(pInfo->pDecl9);
+            HeapFree(GetProcessHeap(), 0, pInfo);
+            return hr;
         }
     }
-    return hr;
+
+    // Add to handle list
+    *pHandle = AddVertexShaderInfo(self, pInfo);
+    if (*pHandle == 0) {
+        if (pInfo->pShader9) IDirect3DVertexShader9_Release(pInfo->pShader9);
+        if (pInfo->pDecl9) IDirect3DVertexDeclaration9_Release(pInfo->pDecl9);
+        HeapFree(GetProcessHeap(), 0, pInfo);
+        return E_OUTOFMEMORY;
+    }
+
+    return D3D_OK;
 }
 
 HRESULT WINAPI Direct3DDevice8_SetVertexShader(IDirect3DDevice8 *This, DWORD Handle)
@@ -365,17 +467,32 @@ HRESULT WINAPI Direct3DDevice8_SetVertexShader(IDirect3DDevice8 *This, DWORD Han
 
     self->CurrentVertexShaderHandle = Handle;
 
-    // Handle == 0 means FVF
-    if (Handle == 0 || (Handle & 0x80000000)) {
-        // FVF
+    // Handle == 0 means no shader/FVF
+    if (Handle == 0) {
         IDirect3DDevice9_SetVertexShader(self->pDevice9, NULL);
+        IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, NULL);
+        return D3D_OK;
+    }
+
+    // Check for FVF (high bit set)
+    if (Handle & 0x80000000) {
+        IDirect3DDevice9_SetVertexShader(self->pDevice9, NULL);
+        IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, NULL);
         return IDirect3DDevice9_SetFVF(self->pDevice9, Handle & ~0x80000000);
     }
 
     // Shader handle
     if (Handle > self->VertexShaderCount) return D3DERR_INVALIDCALL;
-    IDirect3DVertexShader9 *pShader = (IDirect3DVertexShader9 *)self->VertexShaderHandles[Handle - 1];
-    return IDirect3DDevice9_SetVertexShader(self->pDevice9, pShader);
+    VertexShaderInfo *pInfo = self->VertexShaderHandles[Handle - 1];
+    if (!pInfo) return D3DERR_INVALIDCALL;
+
+    // Set vertex declaration first
+    if (pInfo->pDecl9) {
+        IDirect3DDevice9_SetVertexDeclaration(self->pDevice9, pInfo->pDecl9);
+    }
+
+    // Set vertex shader (may be NULL if declaration-only)
+    return IDirect3DDevice9_SetVertexShader(self->pDevice9, pInfo->pShader9);
 }
 
 HRESULT WINAPI Direct3DDevice8_GetVertexShader(IDirect3DDevice8 *This, DWORD *pHandle)
@@ -391,9 +508,11 @@ HRESULT WINAPI Direct3DDevice8_DeleteVertexShader(IDirect3DDevice8 *This, DWORD 
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (Handle == 0 || Handle > self->VertexShaderCount) return D3DERR_INVALIDCALL;
 
-    IDirect3DVertexShader9 *pShader = (IDirect3DVertexShader9 *)self->VertexShaderHandles[Handle - 1];
-    if (pShader) {
-        IDirect3DVertexShader9_Release(pShader);
+    VertexShaderInfo *pInfo = self->VertexShaderHandles[Handle - 1];
+    if (pInfo) {
+        if (pInfo->pShader9) IDirect3DVertexShader9_Release(pInfo->pShader9);
+        if (pInfo->pDecl9) IDirect3DVertexDeclaration9_Release(pInfo->pDecl9);
+        HeapFree(GetProcessHeap(), 0, pInfo);
         self->VertexShaderHandles[Handle - 1] = NULL;
     }
     return D3D_OK;
@@ -423,10 +542,10 @@ HRESULT WINAPI Direct3DDevice8_GetVertexShaderFunction(IDirect3DDevice8 *This, D
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (Handle == 0 || Handle > self->VertexShaderCount) return D3DERR_INVALIDCALL;
 
-    IDirect3DVertexShader9 *pShader = (IDirect3DVertexShader9 *)self->VertexShaderHandles[Handle - 1];
-    if (!pShader) return D3DERR_INVALIDCALL;
+    VertexShaderInfo *pInfo = self->VertexShaderHandles[Handle - 1];
+    if (!pInfo || !pInfo->pShader9) return D3DERR_INVALIDCALL;
 
-    return IDirect3DVertexShader9_GetFunction(pShader, pData, (UINT *)pSizeOfData);
+    return IDirect3DVertexShader9_GetFunction(pInfo->pShader9, pData, (UINT *)pSizeOfData);
 }
 
 HRESULT WINAPI Direct3DDevice8_SetStreamSource(IDirect3DDevice8 *This, UINT StreamNumber, IDirect3DVertexBuffer8 *pStreamData, UINT Stride)

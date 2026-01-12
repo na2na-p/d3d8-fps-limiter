@@ -45,10 +45,24 @@ ULONG WINAPI Direct3DDevice8_Release(IDirect3DDevice8 *This)
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     ULONG ref = --self->RefCount;
     if (ref == 0) {
+        // Release all vertex shaders and their declarations
         if (self->VertexShaderHandles) {
+            for (DWORD i = 0; i < self->VertexShaderCount; i++) {
+                VertexShaderInfo *pInfo = self->VertexShaderHandles[i];
+                if (pInfo) {
+                    if (pInfo->pShader9) IDirect3DVertexShader9_Release(pInfo->pShader9);
+                    if (pInfo->pDecl9) IDirect3DVertexDeclaration9_Release(pInfo->pDecl9);
+                    HeapFree(GetProcessHeap(), 0, pInfo);
+                }
+            }
             HeapFree(GetProcessHeap(), 0, self->VertexShaderHandles);
         }
+        // Release all pixel shaders
         if (self->PixelShaderHandles) {
+            for (DWORD i = 0; i < self->PixelShaderCount; i++) {
+                IDirect3DPixelShader9 *pShader = (IDirect3DPixelShader9 *)self->PixelShaderHandles[i];
+                if (pShader) IDirect3DPixelShader9_Release(pShader);
+            }
             HeapFree(GetProcessHeap(), 0, self->PixelShaderHandles);
         }
         if (self->pDevice9) {

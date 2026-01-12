@@ -14,6 +14,15 @@
 #include "d3d8.h"       // D3D8 interfaces
 
 // ============================================================================
+// Vertex Shader Info Structure (for D3D8 shader + declaration)
+// ============================================================================
+
+typedef struct VertexShaderInfo {
+    IDirect3DVertexShader9 *pShader9;
+    IDirect3DVertexDeclaration9 *pDecl9;
+} VertexShaderInfo;
+
+// ============================================================================
 // Wrapper Structure Forward Declarations
 // ============================================================================
 
@@ -46,8 +55,8 @@ struct Direct3DDevice8 {
     INT BaseVertexIndex;
     DWORD CurrentVertexShaderHandle;
     DWORD CurrentPixelShaderHandle;
-    // Shader handle management
-    void **VertexShaderHandles;
+    // Shader handle management (VertexShaderInfo* stored as void**)
+    VertexShaderInfo **VertexShaderHandles;
     DWORD VertexShaderCount;
     DWORD VertexShaderCapacity;
     void **PixelShaderHandles;
@@ -248,6 +257,203 @@ static inline void ConvertSurfaceDesc9to8(const D3DSURFACE_DESC *pDesc9, D3DSURF
 
 // D3D9 depth bias render state
 #define D3DRS_DEPTHBIAS 195
+
+// ============================================================================
+// D3D8 Vertex Declaration Tokens
+// ============================================================================
+
+// D3D8 vertex declaration token types
+#define D3DVSD_TOKEN_NOP          0
+#define D3DVSD_TOKEN_STREAM       1
+#define D3DVSD_TOKEN_STREAMDATA   2
+#define D3DVSD_TOKEN_TESSELLATOR  3
+#define D3DVSD_TOKEN_CONSTMEM     4
+#define D3DVSD_TOKEN_EXT          5
+#define D3DVSD_TOKEN_END          7
+
+// Token extraction macros
+#define D3DVSD_TOKENTYPESHIFT     29
+#define D3DVSD_TOKENTYPEMASK      (7 << D3DVSD_TOKENTYPESHIFT)
+#define D3DVSD_STREAMNUMBERSHIFT  0
+#define D3DVSD_STREAMNUMBERMASK   (0xF << D3DVSD_STREAMNUMBERSHIFT)
+#define D3DVSD_VERTEXREGSHIFT     0
+#define D3DVSD_VERTEXREGMASK      (0x1F << D3DVSD_VERTEXREGSHIFT)
+#define D3DVSD_DATATYPESHIFT      16
+#define D3DVSD_DATATYPEMASK       (0xF << D3DVSD_DATATYPESHIFT)
+#define D3DVSD_SKIPCOUNTSHIFT     16
+#define D3DVSD_SKIPCOUNTMASK      (0xF << D3DVSD_SKIPCOUNTSHIFT)
+#define D3DVSD_DATALOADTYPESHIFT  28
+#define D3DVSD_DATALOADTYPEMASK   (1 << D3DVSD_DATALOADTYPESHIFT)
+
+// D3D8 vertex data types
+#define D3DVSDT_FLOAT1      0
+#define D3DVSDT_FLOAT2      1
+#define D3DVSDT_FLOAT3      2
+#define D3DVSDT_FLOAT4      3
+#define D3DVSDT_D3DCOLOR    4
+#define D3DVSDT_UBYTE4      5
+#define D3DVSDT_SHORT2      6
+#define D3DVSDT_SHORT4      7
+
+// D3D8 vertex registers
+#define D3DVSDE_POSITION      0
+#define D3DVSDE_BLENDWEIGHT   1
+#define D3DVSDE_BLENDINDICES  2
+#define D3DVSDE_NORMAL        3
+#define D3DVSDE_PSIZE         4
+#define D3DVSDE_DIFFUSE       5
+#define D3DVSDE_SPECULAR      6
+#define D3DVSDE_TEXCOORD0     7
+#define D3DVSDE_TEXCOORD1     8
+#define D3DVSDE_TEXCOORD2     9
+#define D3DVSDE_TEXCOORD3     10
+#define D3DVSDE_TEXCOORD4     11
+#define D3DVSDE_TEXCOORD5     12
+#define D3DVSDE_TEXCOORD6     13
+#define D3DVSDE_TEXCOORD7     14
+#define D3DVSDE_POSITION2     15
+#define D3DVSDE_NORMAL2       16
+
+// D3D9 declaration usage values
+#define D3DDECLUSAGE_POSITION      0
+#define D3DDECLUSAGE_BLENDWEIGHT   1
+#define D3DDECLUSAGE_BLENDINDICES  2
+#define D3DDECLUSAGE_NORMAL        3
+#define D3DDECLUSAGE_PSIZE         4
+#define D3DDECLUSAGE_TEXCOORD      5
+#define D3DDECLUSAGE_TANGENT       6
+#define D3DDECLUSAGE_BINORMAL      7
+#define D3DDECLUSAGE_TESSFACTOR    8
+#define D3DDECLUSAGE_POSITIONT     9
+#define D3DDECLUSAGE_COLOR         10
+#define D3DDECLUSAGE_FOG           11
+#define D3DDECLUSAGE_DEPTH         12
+#define D3DDECLUSAGE_SAMPLE        13
+
+// D3D9 declaration types
+#define D3DDECLTYPE_FLOAT1     0
+#define D3DDECLTYPE_FLOAT2     1
+#define D3DDECLTYPE_FLOAT3     2
+#define D3DDECLTYPE_FLOAT4     3
+#define D3DDECLTYPE_D3DCOLOR   4
+#define D3DDECLTYPE_UBYTE4     5
+#define D3DDECLTYPE_SHORT2     6
+#define D3DDECLTYPE_SHORT4     7
+#define D3DDECLTYPE_UBYTE4N    8
+#define D3DDECLTYPE_SHORT2N    9
+#define D3DDECLTYPE_SHORT4N    10
+#define D3DDECLTYPE_USHORT2N   11
+#define D3DDECLTYPE_USHORT4N   12
+#define D3DDECLTYPE_UDEC3      13
+#define D3DDECLTYPE_DEC3N      14
+#define D3DDECLTYPE_FLOAT16_2  15
+#define D3DDECLTYPE_FLOAT16_4  16
+#define D3DDECLTYPE_UNUSED     17
+
+// D3D9 declaration method
+#define D3DDECLMETHOD_DEFAULT  0
+
+// D3DVERTEXELEMENT9 structure for manual definition
+typedef struct _D3DVERTEXELEMENT9_DEF {
+    WORD    Stream;
+    WORD    Offset;
+    BYTE    Type;
+    BYTE    Method;
+    BYTE    Usage;
+    BYTE    UsageIndex;
+} D3DVERTEXELEMENT9_DEF;
+
+#define D3DDECL_END() {0xFF, 0, D3DDECLTYPE_UNUSED, 0, 0, 0}
+
+// Size lookup table for D3D8 data types
+static inline WORD GetD3D8DataTypeSize(DWORD type)
+{
+    switch (type) {
+        case D3DVSDT_FLOAT1:    return 4;
+        case D3DVSDT_FLOAT2:    return 8;
+        case D3DVSDT_FLOAT3:    return 12;
+        case D3DVSDT_FLOAT4:    return 16;
+        case D3DVSDT_D3DCOLOR:  return 4;
+        case D3DVSDT_UBYTE4:    return 4;
+        case D3DVSDT_SHORT2:    return 4;
+        case D3DVSDT_SHORT4:    return 8;
+        default:                return 0;
+    }
+}
+
+// Convert D3D8 data type to D3D9 declaration type
+static inline BYTE ConvertD3D8TypeToD3D9(DWORD d3d8Type)
+{
+    switch (d3d8Type) {
+        case D3DVSDT_FLOAT1:    return D3DDECLTYPE_FLOAT1;
+        case D3DVSDT_FLOAT2:    return D3DDECLTYPE_FLOAT2;
+        case D3DVSDT_FLOAT3:    return D3DDECLTYPE_FLOAT3;
+        case D3DVSDT_FLOAT4:    return D3DDECLTYPE_FLOAT4;
+        case D3DVSDT_D3DCOLOR:  return D3DDECLTYPE_D3DCOLOR;
+        case D3DVSDT_UBYTE4:    return D3DDECLTYPE_UBYTE4;
+        case D3DVSDT_SHORT2:    return D3DDECLTYPE_SHORT2;
+        case D3DVSDT_SHORT4:    return D3DDECLTYPE_SHORT4;
+        default:                return D3DDECLTYPE_UNUSED;
+    }
+}
+
+// Convert D3D8 vertex register to D3D9 usage and usage index
+static inline void ConvertD3D8RegisterToD3D9Usage(DWORD d3d8Reg, BYTE *pUsage, BYTE *pUsageIndex)
+{
+    switch (d3d8Reg) {
+        case D3DVSDE_POSITION:
+            *pUsage = D3DDECLUSAGE_POSITION;
+            *pUsageIndex = 0;
+            break;
+        case D3DVSDE_BLENDWEIGHT:
+            *pUsage = D3DDECLUSAGE_BLENDWEIGHT;
+            *pUsageIndex = 0;
+            break;
+        case D3DVSDE_BLENDINDICES:
+            *pUsage = D3DDECLUSAGE_BLENDINDICES;
+            *pUsageIndex = 0;
+            break;
+        case D3DVSDE_NORMAL:
+            *pUsage = D3DDECLUSAGE_NORMAL;
+            *pUsageIndex = 0;
+            break;
+        case D3DVSDE_PSIZE:
+            *pUsage = D3DDECLUSAGE_PSIZE;
+            *pUsageIndex = 0;
+            break;
+        case D3DVSDE_DIFFUSE:
+            *pUsage = D3DDECLUSAGE_COLOR;
+            *pUsageIndex = 0;
+            break;
+        case D3DVSDE_SPECULAR:
+            *pUsage = D3DDECLUSAGE_COLOR;
+            *pUsageIndex = 1;
+            break;
+        case D3DVSDE_TEXCOORD0:
+        case D3DVSDE_TEXCOORD1:
+        case D3DVSDE_TEXCOORD2:
+        case D3DVSDE_TEXCOORD3:
+        case D3DVSDE_TEXCOORD4:
+        case D3DVSDE_TEXCOORD5:
+        case D3DVSDE_TEXCOORD6:
+        case D3DVSDE_TEXCOORD7:
+            *pUsage = D3DDECLUSAGE_TEXCOORD;
+            *pUsageIndex = (BYTE)(d3d8Reg - D3DVSDE_TEXCOORD0);
+            break;
+        case D3DVSDE_POSITION2:
+            *pUsage = D3DDECLUSAGE_POSITION;
+            *pUsageIndex = 1;
+            break;
+        case D3DVSDE_NORMAL2:
+            *pUsage = D3DDECLUSAGE_NORMAL;
+            *pUsageIndex = 1;
+            break;
+        default:
+            *pUsage = 0;
+            *pUsageIndex = 0;
+            break;
+    }
+}
 
 // ============================================================================
 // Configuration
