@@ -194,13 +194,18 @@ static void DoFrameLimit_HighRes(void) {
             _mm_pause();
             QueryPerformanceCounter(&now);
         } while (now.QuadPart < g_nextFrameTime);
+    }
 
-        // Advance to next frame from the target we just hit
-        g_nextFrameTime += g_targetFrameTicks;
-    } else {
-        // We're behind schedule - reset timing from current position
-        // This prevents accumulated drift in variable load scenarios
-        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+    // Always advance by fixed interval to maintain consistent frame pacing
+    g_nextFrameTime += g_targetFrameTicks;
+
+    // If we're severely behind (missed frames), skip ahead to next valid target
+    // This prevents bunching of frames after a delay
+    if (g_nextFrameTime <= now.QuadPart) {
+        QueryPerformanceCounter(&now);
+        // Calculate how many frames we missed and skip to next valid target
+        LONGLONG missedFrames = (now.QuadPart - g_nextFrameTime) / g_targetFrameTicks + 1;
+        g_nextFrameTime += missedFrames * g_targetFrameTicks;
     }
 }
 
@@ -222,13 +227,18 @@ static void DoFrameLimit_Fallback(void) {
             _mm_pause();
             QueryPerformanceCounter(&now);
         } while (now.QuadPart < g_nextFrameTime);
+    }
 
-        // Advance to next frame from the target we just hit
-        g_nextFrameTime += g_targetFrameTicks;
-    } else {
-        // We're behind schedule - reset timing from current position
-        // This prevents accumulated drift in variable load scenarios
-        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+    // Always advance by fixed interval to maintain consistent frame pacing
+    g_nextFrameTime += g_targetFrameTicks;
+
+    // If we're severely behind (missed frames), skip ahead to next valid target
+    // This prevents bunching of frames after a delay
+    if (g_nextFrameTime <= now.QuadPart) {
+        QueryPerformanceCounter(&now);
+        // Calculate how many frames we missed and skip to next valid target
+        LONGLONG missedFrames = (now.QuadPart - g_nextFrameTime) / g_targetFrameTicks + 1;
+        g_nextFrameTime += missedFrames * g_targetFrameTicks;
     }
 }
 
