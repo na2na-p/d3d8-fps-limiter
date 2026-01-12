@@ -20,6 +20,7 @@
 #define BUSYWAIT_MARGIN_MS        0.5
 #define SLEEP_MARGIN_MS           2.0
 #define TIMER_RESOLUTION_MS       1
+#define RESYNC_THRESHOLD_MS       500.0
 #define CONFIG_FILENAME           "d3d8_limiter.ini"
 #define CONFIG_SECTION            "limiter"
 #define CONFIG_KEY_FPS            "fps"
@@ -48,6 +49,7 @@ static BOOL g_timerResolutionSet = FALSE;
 static HANDLE g_hTimer = NULL;
 static BOOL g_useHighResTimer = FALSE;
 static LONGLONG g_busywaitMargin = 0;
+static LONGLONG g_resyncThreshold = 0;
 
 // 実行時の分岐を避けるため関数ポインタで処理を切り替え
 static void (*DoFrameLimit_Impl)(void) = NULL;
@@ -88,9 +90,8 @@ static void InitFrameLimiter(void) {
         g_targetFrameTicks = (LONGLONG)targetFrameTime;
     }
 
-    LARGE_INTEGER now;
-    QueryPerformanceCounter(&now);
-    g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+    g_nextFrameTime = 0;
+    g_resyncThreshold = (LONGLONG)(g_freq.QuadPart * RESYNC_THRESHOLD_MS / 1000.0);
 
     // Windows 10 1803+のみ利用可能
     HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
@@ -134,8 +135,9 @@ static void DoFrameLimit_HighRes(void) {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
 
-    if (g_nextFrameTime < now.QuadPart) {
+    if (g_nextFrameTime == 0 || (now.QuadPart - g_nextFrameTime) > g_resyncThreshold) {
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+        return;
     }
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
@@ -160,8 +162,9 @@ static void DoFrameLimit_Fallback(void) {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
 
-    if (g_nextFrameTime < now.QuadPart) {
+    if (g_nextFrameTime == 0 || (now.QuadPart - g_nextFrameTime) > g_resyncThreshold) {
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+        return;
     }
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
