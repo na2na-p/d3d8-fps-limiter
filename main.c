@@ -81,16 +81,16 @@ static void InitFrameLimiter(void) {
 
     QueryPerformanceFrequency(&g_freq);
 
-    LARGE_INTEGER now;
-    QueryPerformanceCounter(&now);
-    g_nextFrameTime = now.QuadPart;
-
     LoadConfig();
 
     if (g_targetFPS > 0) {
         double targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
         g_targetFrameTicks = (LONGLONG)targetFrameTime;
     }
+
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
 
     // Windows 10 1803+のみ利用可能
     HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
@@ -134,8 +134,7 @@ static void DoFrameLimit_HighRes(void) {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
 
-    // g_nextFrameTimeが過去の場合は現在時刻から再同期
-    if (g_nextFrameTime <= now.QuadPart) {
+    if (g_nextFrameTime < now.QuadPart) {
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
     }
 
@@ -161,8 +160,7 @@ static void DoFrameLimit_Fallback(void) {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
 
-    // g_nextFrameTimeが過去の場合は現在時刻から再同期
-    if (g_nextFrameTime <= now.QuadPart) {
+    if (g_nextFrameTime < now.QuadPart) {
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
     }
 
