@@ -152,11 +152,9 @@ static void DoFrameLimit_HighRes(void) {
 
     g_nextFrameTime += g_targetFrameTicks;
 
-    // フレーム遅延後の詰まりを防止
+    // 遅延時は現在時刻から1フレーム先にリセット（複数フレームスキップを防止）
     if (g_nextFrameTime <= now.QuadPart) {
-        QueryPerformanceCounter(&now);
-        LONGLONG missedFrames = (now.QuadPart - g_nextFrameTime) / g_targetFrameTicks + 1;
-        g_nextFrameTime += missedFrames * g_targetFrameTicks;
+        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
     }
 }
 
@@ -179,11 +177,9 @@ static void DoFrameLimit_Fallback(void) {
 
     g_nextFrameTime += g_targetFrameTicks;
 
-    // フレーム遅延後の詰まりを防止
+    // 遅延時は現在時刻から1フレーム先にリセット（複数フレームスキップを防止）
     if (g_nextFrameTime <= now.QuadPart) {
-        QueryPerformanceCounter(&now);
-        LONGLONG missedFrames = (now.QuadPart - g_nextFrameTime) / g_targetFrameTicks + 1;
-        g_nextFrameTime += missedFrames * g_targetFrameTicks;
+        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
     }
 }
 
