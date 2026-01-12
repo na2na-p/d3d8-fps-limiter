@@ -134,6 +134,11 @@ static void DoFrameLimit_HighRes(void) {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
 
+    // g_nextFrameTimeが過去の場合は現在時刻から再同期
+    if (g_nextFrameTime <= now.QuadPart) {
+        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+    }
+
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     if (remaining > g_busywaitMargin) {
@@ -155,6 +160,11 @@ static void DoFrameLimit_HighRes(void) {
 static void DoFrameLimit_Fallback(void) {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
+
+    // g_nextFrameTimeが過去の場合は現在時刻から再同期
+    if (g_nextFrameTime <= now.QuadPart) {
+        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
+    }
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
