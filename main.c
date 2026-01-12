@@ -140,6 +140,10 @@ static void DoFrameLimit_HighRes(void) {
         return;
     }
 
+    while (g_nextFrameTime <= now.QuadPart) {
+        g_nextFrameTime += g_targetFrameTicks;
+    }
+
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     if (remaining > g_busywaitMargin) {
@@ -165,6 +169,10 @@ static void DoFrameLimit_Fallback(void) {
     if (g_nextFrameTime == 0 || (now.QuadPart - g_nextFrameTime) > g_resyncThreshold) {
         g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
         return;
+    }
+
+    while (g_nextFrameTime <= now.QuadPart) {
+        g_nextFrameTime += g_targetFrameTicks;
     }
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
