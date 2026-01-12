@@ -164,6 +164,60 @@ static HRESULT ConvertVertexShaderWithD3DX(IDirect3DDevice9 *pDevice9, const DWO
     return hr;
 }
 
+// Convert D3D8 pixel shader to D3D9 using D3DX
+static HRESULT ConvertPixelShaderWithD3DX(IDirect3DDevice9 *pDevice9, const DWORD *pFunction,
+                                           IDirect3DPixelShader9 **ppShader9)
+{
+    if (!g_D3DXAvailable || !pFunction || !ppShader9) return E_FAIL;
+
+    // Disassemble shader
+    ID3DXBuffer *pDisassembly = NULL;
+    HRESULT hr = g_pD3DXDisassembleShader(pFunction, FALSE, NULL, (void**)&pDisassembly);
+    if (FAILED(hr) || !pDisassembly) return hr;
+
+    char *sourceCode = (char*)ID3DXBuffer_GetBufferPointer(pDisassembly);
+    if (!sourceCode) {
+        ID3DXBuffer_Release(pDisassembly);
+        return E_FAIL;
+    }
+
+    // Make a mutable copy
+    size_t sourceLen = strlen(sourceCode);
+    char *modifiedCode = (char*)HeapAlloc(GetProcessHeap(), 0, sourceLen + 256);
+    if (!modifiedCode) {
+        ID3DXBuffer_Release(pDisassembly);
+        return E_OUTOFMEMORY;
+    }
+    strcpy(modifiedCode, sourceCode);
+
+    // Upgrade ps_1_0 to ps_1_1 (if needed)
+    char *temp = StringReplace(modifiedCode, "ps_1_0", "ps_1_1");
+    if (temp) {
+        HeapFree(GetProcessHeap(), 0, modifiedCode);
+        modifiedCode = temp;
+    }
+
+    // Assemble modified shader
+    ID3DXBuffer *pCompiledShader = NULL;
+    ID3DXBuffer *pErrors = NULL;
+    hr = g_pD3DXAssembleShader(modifiedCode, (UINT)strlen(modifiedCode), NULL, NULL, 0,
+                                (void**)&pCompiledShader, (void**)&pErrors);
+
+    HeapFree(GetProcessHeap(), 0, modifiedCode);
+    ID3DXBuffer_Release(pDisassembly);
+
+    if (pErrors) ID3DXBuffer_Release(pErrors);
+
+    if (FAILED(hr) || !pCompiledShader) return hr;
+
+    // Create shader from compiled bytecode
+    hr = IDirect3DDevice9_CreatePixelShader(pDevice9,
+            (const DWORD*)ID3DXBuffer_GetBufferPointer(pCompiledShader), ppShader9);
+
+    ID3DXBuffer_Release(pCompiledShader);
+    return hr;
+}
+
 // Forward declarations for resource wrappers
 HRESULT CreateDirect3DSurface8(Direct3DDevice8 *pDevice8, IDirect3DSurface9 *pSurface9, Direct3DSurface8 **ppSurface8);
 HRESULT CreateDirect3DTexture8(Direct3DDevice8 *pDevice8, IDirect3DTexture9 *pTexture9, Direct3DTexture8 **ppTexture8);
@@ -952,8 +1006,18 @@ HRESULT WINAPI Direct3DDevice8_CreatePixelShader(IDirect3DDevice8 *This, const D
     Direct3DDevice8 *self = (Direct3DDevice8 *)This;
     if (!pHandle || !pFunction) return D3DERR_INVALIDCALL;
 
+    // Ensure D3DX is loaded for shader conversion
+    LoadD3DX9();
+
     IDirect3DPixelShader9 *pShader9 = NULL;
+
+    // First try with original shader
     HRESULT hr = IDirect3DDevice9_CreatePixelShader(self->pDevice9, pFunction, &pShader9);
+
+    // If failed, try D3DX-based conversion
+    if (FAILED(hr) && g_D3DXAvailable) {
+        hr = ConvertPixelShaderWithD3DX(self->pDevice9, pFunction, &pShader9);
+    }
 
     if (SUCCEEDED(hr)) {
         *pHandle = AddPixelShaderHandle(self, pShader9);
