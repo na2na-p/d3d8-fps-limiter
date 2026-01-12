@@ -142,12 +142,13 @@ static void DoFrameLimit_HighRes(void) {
 
     g_nextFrameTime += g_targetFrameTicks;
 
-    LONGLONG remaining = g_nextFrameTime - now.QuadPart;
-
-    while (remaining <= 0) {
-        g_nextFrameTime += g_targetFrameTicks;
-        remaining += g_targetFrameTicks;
+    if (g_nextFrameTime <= now.QuadPart) {
+        LONGLONG delay = now.QuadPart - g_nextFrameTime;
+        LONGLONG framesToSkip = delay / g_targetFrameTicks + 1;
+        g_nextFrameTime += framesToSkip * g_targetFrameTicks;
     }
+
+    LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     if (remaining > g_busywaitMargin) {
         LARGE_INTEGER dueTime;
@@ -174,12 +175,13 @@ static void DoFrameLimit_Fallback(void) {
 
     g_nextFrameTime += g_targetFrameTicks;
 
-    LONGLONG remaining = g_nextFrameTime - now.QuadPart;
-
-    while (remaining <= 0) {
-        g_nextFrameTime += g_targetFrameTicks;
-        remaining += g_targetFrameTicks;
+    if (g_nextFrameTime <= now.QuadPart) {
+        LONGLONG delay = now.QuadPart - g_nextFrameTime;
+        LONGLONG framesToSkip = delay / g_targetFrameTicks + 1;
+        g_nextFrameTime += framesToSkip * g_targetFrameTicks;
     }
+
+    LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
     if (remainingMs > SLEEP_MARGIN_MS) {
