@@ -142,10 +142,8 @@ static void DoFrameLimit_HighRes(void) {
 
     g_nextFrameTime += g_targetFrameTicks;
 
-    if (g_nextFrameTime <= now.QuadPart) {
-        LONGLONG delay = now.QuadPart - g_nextFrameTime;
-        LONGLONG framesToSkip = delay / g_targetFrameTicks + 1;
-        g_nextFrameTime += framesToSkip * g_targetFrameTicks;
+    if (g_nextFrameTime + g_targetFrameTicks < now.QuadPart) {
+        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
     }
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
@@ -175,10 +173,8 @@ static void DoFrameLimit_Fallback(void) {
 
     g_nextFrameTime += g_targetFrameTicks;
 
-    if (g_nextFrameTime <= now.QuadPart) {
-        LONGLONG delay = now.QuadPart - g_nextFrameTime;
-        LONGLONG framesToSkip = delay / g_targetFrameTicks + 1;
-        g_nextFrameTime += framesToSkip * g_targetFrameTicks;
+    if (g_nextFrameTime + g_targetFrameTicks < now.QuadPart) {
+        g_nextFrameTime = now.QuadPart + g_targetFrameTicks;
     }
 
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
