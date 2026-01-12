@@ -10,6 +10,46 @@ extern IDirect3DDevice8Vtbl g_Direct3DDevice8_Vtbl;
 HRESULT CreateDirect3DDevice8(Direct3D8 *pD3D8, IDirect3DDevice9 *pDevice9, Direct3DDevice8 **ppDevice8);
 
 // ============================================================================
+// Configuration
+// ============================================================================
+
+#define CONFIG_FILENAME "d3d8to9.ini"
+#define CONFIG_SECTION "d3d8to9"
+
+// Global config instance
+D3D8to9Config g_Config = {
+    .VSyncMode = VSYNC_USE_GAME_SETTING
+};
+
+static BOOL g_ConfigLoaded = FALSE;
+
+static void LoadConfig(void)
+{
+    if (g_ConfigLoaded) return;
+    g_ConfigLoaded = TRUE;
+
+    // Get the path to the INI file (same directory as the DLL/EXE)
+    char iniPath[MAX_PATH];
+    GetModuleFileNameA(NULL, iniPath, MAX_PATH);
+
+    // Find the last backslash and replace filename with config filename
+    char *lastSlash = strrchr(iniPath, '\\');
+    if (lastSlash) {
+        strcpy(lastSlash + 1, CONFIG_FILENAME);
+    } else {
+        strcpy(iniPath, CONFIG_FILENAME);
+    }
+
+    // Load VSync setting
+    g_Config.VSyncMode = GetPrivateProfileIntA(CONFIG_SECTION, "vsync", VSYNC_USE_GAME_SETTING, iniPath);
+
+    // Validate range
+    if (g_Config.VSyncMode < 0 || g_Config.VSyncMode > 2) {
+        g_Config.VSyncMode = VSYNC_USE_GAME_SETTING;
+    }
+}
+
+// ============================================================================
 // IDirect3D8 Implementation
 // ============================================================================
 
@@ -151,6 +191,9 @@ static HRESULT WINAPI Direct3D8_CreateDevice(IDirect3D8 *This, UINT Adapter, D3D
     D3DPRESENT_PARAMETERS params9;
     ConvertPresentParameters8to9(pPresentationParameters, &params9);
 
+    // Apply VSync setting from config
+    ApplyVSyncSetting(&params9);
+
     IDirect3DDevice9 *pDevice9 = NULL;
     HRESULT hr = IDirect3D9_CreateDevice(self->pD3D9, Adapter, DeviceType, hFocusWindow, BehaviorFlags, &params9, &pDevice9);
 
@@ -203,6 +246,9 @@ static PFN_Direct3DCreate9 g_pDirect3DCreate9 = NULL;
 IDirect3D8 * WINAPI Direct3DCreate8(UINT SDKVersion)
 {
     (void)SDKVersion;
+
+    // Load configuration
+    LoadConfig();
 
     // Load d3d9.dll if not already loaded
     if (g_hD3D9 == NULL) {

@@ -26,9 +26,31 @@ A DirectX 8 to DirectX 9 wrapper that allows old D3D8 games to run using the D3D
 ## Usage
 
 1. Copy `d3d8.dll` to your game folder (next to the game .exe)
-2. Launch the game
+2. (Optional) Create `d3d8to9.ini` in the same folder for configuration
+3. Launch the game
 
 The wrapper will automatically load the system's D3D9 and translate all D3D8 calls.
+
+## Configuration
+
+Create a `d3d8to9.ini` file in the game folder:
+
+```ini
+[d3d8to9]
+; VSync control
+; 0 = Use game's original setting
+; 1 = Force VSync ON
+; 2 = Force VSync OFF
+vsync=1
+```
+
+### Options
+
+| Option | Values | Description |
+|--------|--------|-------------|
+| `vsync` | 0 | Use the game's original VSync setting |
+| | 1 | Force VSync ON (recommended for screen tearing) |
+| | 2 | Force VSync OFF (lower input latency) |
 
 ## Building
 
@@ -99,11 +121,12 @@ Game (D3D8 API calls)
 d3d8.h              - D3D8 interface definitions
 d3d8types.h         - D3D8 type definitions
 d3d8to9_base.h      - Wrapper structure definitions and conversion helpers
-d3d8to9_d3d8.c      - IDirect3D8 implementation
+d3d8to9_d3d8.c      - IDirect3D8 implementation + config loading
 d3d8to9_device.c    - IDirect3DDevice8 implementation (part 1)
 d3d8to9_device2.c   - IDirect3DDevice8 implementation (part 2)
 d3d8to9_resources.c - Surface, Texture, Buffer wrappers
 d3d8.def            - DLL export definitions
+d3d8to9.ini         - Configuration file template
 CMakeLists.txt      - Build configuration
 ```
 

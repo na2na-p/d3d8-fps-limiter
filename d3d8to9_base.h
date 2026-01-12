@@ -248,4 +248,37 @@ static inline void ConvertSurfaceDesc9to8(const D3DSURFACE_DESC *pDesc9, D3DSURF
 // D3D9 depth bias render state
 #define D3DRS_DEPTHBIAS 195
 
+// ============================================================================
+// Configuration
+// ============================================================================
+
+// VSync modes
+#define VSYNC_USE_GAME_SETTING 0
+#define VSYNC_FORCE_ON         1
+#define VSYNC_FORCE_OFF        2
+
+typedef struct D3D8to9Config {
+    int VSyncMode;  // 0 = game setting, 1 = force on, 2 = force off
+} D3D8to9Config;
+
+// Global config (defined in d3d8to9_d3d8.c)
+extern D3D8to9Config g_Config;
+
+// Apply VSync setting to presentation interval
+static inline void ApplyVSyncSetting(D3DPRESENT_PARAMETERS *pParams9)
+{
+    switch (g_Config.VSyncMode) {
+        case VSYNC_FORCE_ON:
+            pParams9->PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+            break;
+        case VSYNC_FORCE_OFF:
+            pParams9->PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+            break;
+        case VSYNC_USE_GAME_SETTING:
+        default:
+            // Keep the game's original setting
+            break;
+    }
+}
+
 #endif // D3D8TO9_BASE_H

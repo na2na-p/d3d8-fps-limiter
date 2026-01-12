@@ -138,6 +138,9 @@ static HRESULT WINAPI Direct3DDevice8_CreateAdditionalSwapChain(IDirect3DDevice8
     D3DPRESENT_PARAMETERS params9;
     ConvertPresentParameters8to9(pPresentationParameters, &params9);
 
+    // Apply VSync setting from config
+    ApplyVSyncSetting(&params9);
+
     IDirect3DSwapChain9 *pSwapChain9 = NULL;
     HRESULT hr = IDirect3DDevice9_CreateAdditionalSwapChain(self->pDevice9, &params9, &pSwapChain9);
 
@@ -158,6 +161,9 @@ static HRESULT WINAPI Direct3DDevice8_Reset(IDirect3DDevice8 *This, D3DPRESENT_P
 
     D3DPRESENT_PARAMETERS params9;
     ConvertPresentParameters8to9(pPresentationParameters, &params9);
+
+    // Apply VSync setting from config
+    ApplyVSyncSetting(&params9);
 
     HRESULT hr = IDirect3DDevice9_Reset(self->pDevice9, &params9);
 
