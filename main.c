@@ -29,9 +29,6 @@
 #define BUSYWAIT_MARGIN_MS        0.5   // Margin before final busy-wait (high-res timer)
 #define SLEEP_MARGIN_MS           2.0   // Margin before final busy-wait (fallback)
 #define TIMER_RESOLUTION_MS       1     // timeBeginPeriod resolution
-#define CATCHUP_THRESHOLD         4.0   // Gradual adjustment if behind by this many frames
-#define MAX_CATCHUP_FRAMES        10.0  // Hard reset if behind by this many frames
-#define CATCHUP_RATE              8     // Divide behindBy by this for gentle adjustment
 
 // Configuration file
 #define CONFIG_FILENAME           "d3d8_limiter.ini"
@@ -65,8 +62,6 @@ static PFN_Direct3DCreate8 Real_Direct3DCreate8 = NULL;
 static LARGE_INTEGER g_freq;
 static LONGLONG g_nextFrameTime;
 static LONGLONG g_targetFrameTicks = 0;  // Pre-calculated frame time in QPC ticks
-static LONGLONG g_catchupThreshold = 0;  // Pre-calculated gradual catch-up threshold
-static LONGLONG g_maxCatchupThreshold = 0;  // Pre-calculated max catch-up (hard reset)
 static int g_targetFPS = DEFAULT_FPS;
 static BOOL g_initialized = FALSE;
 
@@ -131,12 +126,9 @@ static void InitFrameLimiter(void) {
     LoadConfig();
 
     if (g_targetFPS > 0) {
-        double targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
         // Pre-calculate frame time in ticks (avoids conversion every frame)
+        double targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
         g_targetFrameTicks = (LONGLONG)targetFrameTime;
-        // Pre-calculate catch-up thresholds
-        g_catchupThreshold = (LONGLONG)(targetFrameTime * CATCHUP_THRESHOLD);
-        g_maxCatchupThreshold = (LONGLONG)(targetFrameTime * MAX_CATCHUP_FRAMES);
     }
 
     // Try high-resolution waitable timer (Windows 10 1803+)
@@ -209,23 +201,9 @@ static void DoFrameLimit_HighRes(void) {
         QueryPerformanceCounter(&now);
     }
 
-    // Advance to next frame (use pre-calculated ticks, no type conversion)
+    // Always advance by exactly one frame interval - maintain strict fixed cadence
+    // For high-FPS games (1000+ fps), this ensures perfectly even frame pacing
     g_nextFrameTime += g_targetFrameTicks;
-
-    // Very smooth catch-up logic to prevent stutter during load spikes
-    LONGLONG behindBy = now.QuadPart - g_nextFrameTime;
-    if (behindBy > 0) {
-        if (behindBy > g_maxCatchupThreshold) {
-            // Extremely far behind: hard reset (only for severe freezes)
-            g_nextFrameTime = now.QuadPart;
-        } else if (behindBy > g_catchupThreshold) {
-            // Moderately behind: very gradual adjustment over multiple frames
-            // Dividing by CATCHUP_RATE (8) means adjusting 12.5% per frame
-            // This takes 8 frames to fully recover, preventing any sudden jumps
-            g_nextFrameTime += behindBy / CATCHUP_RATE;
-        }
-        // else: slightly behind (< 4 frames), let it naturally catch up (no adjustment)
-    }
 }
 
 // Fallback implementation using Sleep (no branching in hot path)
@@ -236,7 +214,6 @@ static void DoFrameLimit_Fallback(void) {
     LONGLONG remaining = g_nextFrameTime - now.QuadPart;
 
     // Only wait if we're ahead of schedule
-    // If we're behind, skip waiting entirely to avoid making things worse
     if (remaining > 0) {
         double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
         if (remainingMs > SLEEP_MARGIN_MS) {
@@ -247,28 +224,12 @@ static void DoFrameLimit_Fallback(void) {
             _mm_pause();
             QueryPerformanceCounter(&now);
         } while (now.QuadPart < g_nextFrameTime);
-    } else {
-        // We're behind schedule - get current time for accurate adjustment
-        QueryPerformanceCounter(&now);
     }
+    // If behind, skip waiting and proceed immediately
 
-    // Advance to next frame (use pre-calculated ticks, no type conversion)
+    // Always advance by exactly one frame interval - maintain strict fixed cadence
+    // For high-FPS games (1000+ fps), this ensures perfectly even frame pacing
     g_nextFrameTime += g_targetFrameTicks;
-
-    // Very smooth catch-up logic to prevent stutter during load spikes
-    LONGLONG behindBy = now.QuadPart - g_nextFrameTime;
-    if (behindBy > 0) {
-        if (behindBy > g_maxCatchupThreshold) {
-            // Extremely far behind: hard reset (only for severe freezes)
-            g_nextFrameTime = now.QuadPart;
-        } else if (behindBy > g_catchupThreshold) {
-            // Moderately behind: very gradual adjustment over multiple frames
-            // Dividing by CATCHUP_RATE (8) means adjusting 12.5% per frame
-            // This takes 8 frames to fully recover, preventing any sudden jumps
-            g_nextFrameTime += behindBy / CATCHUP_RATE;
-        }
-        // else: slightly behind (< 4 frames), let it naturally catch up (no adjustment)
-    }
 }
 
 // Main frame limiter entry point (inline wrapper)
