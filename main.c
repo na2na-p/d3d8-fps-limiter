@@ -29,7 +29,8 @@
 #define BUSYWAIT_MARGIN_MS        0.5   // Margin before final busy-wait (high-res timer)
 #define SLEEP_MARGIN_MS           2.0   // Margin before final busy-wait (fallback)
 #define TIMER_RESOLUTION_MS       1     // timeBeginPeriod resolution
-#define CATCHUP_THRESHOLD         0.5   // Reset timing if behind by this many frames
+#define CATCHUP_THRESHOLD         2.0   // Gradual adjustment if behind by this many frames
+#define MAX_CATCHUP_FRAMES        5.0   // Hard reset if behind by this many frames
 
 // Configuration file
 #define CONFIG_FILENAME           "d3d8_limiter.ini"
@@ -63,7 +64,8 @@ static PFN_Direct3DCreate8 Real_Direct3DCreate8 = NULL;
 static LARGE_INTEGER g_freq;
 static LONGLONG g_nextFrameTime;
 static LONGLONG g_targetFrameTicks = 0;  // Pre-calculated frame time in QPC ticks
-static LONGLONG g_catchupThreshold = 0;  // Pre-calculated catch-up threshold
+static LONGLONG g_catchupThreshold = 0;  // Pre-calculated gradual catch-up threshold
+static LONGLONG g_maxCatchupThreshold = 0;  // Pre-calculated max catch-up (hard reset)
 static int g_targetFPS = DEFAULT_FPS;
 static BOOL g_initialized = FALSE;
 
@@ -131,8 +133,9 @@ static void InitFrameLimiter(void) {
         double targetFrameTime = (double)g_freq.QuadPart / (double)g_targetFPS;
         // Pre-calculate frame time in ticks (avoids conversion every frame)
         g_targetFrameTicks = (LONGLONG)targetFrameTime;
-        // Pre-calculate catch-up threshold (used every frame)
+        // Pre-calculate catch-up thresholds
         g_catchupThreshold = (LONGLONG)(targetFrameTime * CATCHUP_THRESHOLD);
+        g_maxCatchupThreshold = (LONGLONG)(targetFrameTime * MAX_CATCHUP_FRAMES);
     }
 
     // Try high-resolution waitable timer (Windows 10 1803+)
@@ -203,9 +206,18 @@ static void DoFrameLimit_HighRes(void) {
     // Advance to next frame (use pre-calculated ticks, no type conversion)
     g_nextFrameTime += g_targetFrameTicks;
 
-    // Prevent catch-up stutter when falling behind (use pre-calculated threshold)
-    if (now.QuadPart > g_nextFrameTime + g_catchupThreshold) {
-        g_nextFrameTime = now.QuadPart;
+    // Smooth catch-up logic to prevent stutter during load spikes
+    LONGLONG behindBy = now.QuadPart - g_nextFrameTime;
+    if (behindBy > 0) {
+        if (behindBy > g_maxCatchupThreshold) {
+            // Far behind: hard reset (only for extreme cases)
+            g_nextFrameTime = now.QuadPart;
+        } else if (behindBy > g_catchupThreshold) {
+            // Moderately behind: gradual adjustment (advance halfway to current time)
+            // This prevents sudden jumps while still recovering from temporary load
+            g_nextFrameTime += behindBy / 2;
+        }
+        // else: slightly behind, let it naturally catch up (no adjustment)
     }
 }
 
@@ -231,9 +243,18 @@ static void DoFrameLimit_Fallback(void) {
     // Advance to next frame (use pre-calculated ticks, no type conversion)
     g_nextFrameTime += g_targetFrameTicks;
 
-    // Prevent catch-up stutter when falling behind (use pre-calculated threshold)
-    if (now.QuadPart > g_nextFrameTime + g_catchupThreshold) {
-        g_nextFrameTime = now.QuadPart;
+    // Smooth catch-up logic to prevent stutter during load spikes
+    LONGLONG behindBy = now.QuadPart - g_nextFrameTime;
+    if (behindBy > 0) {
+        if (behindBy > g_maxCatchupThreshold) {
+            // Far behind: hard reset (only for extreme cases)
+            g_nextFrameTime = now.QuadPart;
+        } else if (behindBy > g_catchupThreshold) {
+            // Moderately behind: gradual adjustment (advance halfway to current time)
+            // This prevents sudden jumps while still recovering from temporary load
+            g_nextFrameTime += behindBy / 2;
+        }
+        // else: slightly behind, let it naturally catch up (no adjustment)
     }
 }
 
