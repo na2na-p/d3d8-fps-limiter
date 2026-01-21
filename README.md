@@ -54,6 +54,3 @@ Common:
 - Accumulate frame times to prevent long-term drift
 - Reset timing when falling behind to prevent stutter
 
-## License
-
-Public Domain / CC0
