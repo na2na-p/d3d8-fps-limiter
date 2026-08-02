@@ -207,6 +207,11 @@ static void InstallPresentHook(IDirect3DDevice8 *device) {
     InitFrameLimiter();
 
     void **vtbl = device->lpVtbl;
+
+    // vtable はクラス単位で共有されるため、フック済みでも無条件に再フックしてはいけない
+    // (Real_Present がフック関数自身を指してしまい、次回 Present 呼び出しで無限再帰する)
+    if (vtbl[VTABLE_INDEX_PRESENT] == (void*)Hooked_Present) return;
+
     g_presentVtableEntry = &vtbl[VTABLE_INDEX_PRESENT];
     Real_Present = (PFN_Present)vtbl[VTABLE_INDEX_PRESENT];
 
@@ -229,6 +234,11 @@ static HRESULT WINAPI Hooked_CreateDevice(IDirect3D8 *This, UINT adapter, DWORD 
 
 static void InstallCreateDeviceHook(IDirect3D8 *d3d8) {
     void **vtbl = d3d8->lpVtbl;
+
+    // vtable はクラス単位で共有されるため、フック済みでも無条件に再フックしてはいけない
+    // (Real_CreateDevice がフック関数自身を指してしまい、次回 CreateDevice 呼び出しで無限再帰する)
+    if (vtbl[VTABLE_INDEX_CREATEDEVICE] == (void*)Hooked_CreateDevice) return;
+
     g_createDeviceVtableEntry = &vtbl[VTABLE_INDEX_CREATEDEVICE];
     Real_CreateDevice = (PFN_CreateDevice)vtbl[VTABLE_INDEX_CREATEDEVICE];
 
