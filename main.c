@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <mmsystem.h>
+#include <string.h>
 
 #ifdef _MSC_VER
     #include <intrin.h>
@@ -128,24 +129,29 @@ static void ShutdownFrameLimiter(void) {
     }
 }
 
-static void DoFrameLimit_HighRes(void) {
-    LARGE_INTEGER now;
-    QueryPerformanceCounter(&now);
-
+// 累積スケジュールを1フレーム進め、待機の残り時間 (ticks) を返す (0以下 = 待機不要)
+static LONGLONG AdvanceFrameSchedule(LONGLONG now) {
     if (g_nextFrameTime == 0) {
-        g_nextFrameTime = now.QuadPart;
-        return;
+        g_nextFrameTime = now;
+        return 0;
     }
 
     g_nextFrameTime += g_targetFrameTicks;
 
     // 1フレーム超の遅れは負債を赦免して now に再アンカー
     // (now + T にすると、遅延したフレームの直後に丸1フレーム余計に待ってしまう)
-    if (g_nextFrameTime + g_targetFrameTicks < now.QuadPart) {
-        g_nextFrameTime = now.QuadPart;
+    if (g_nextFrameTime + g_targetFrameTicks < now) {
+        g_nextFrameTime = now;
     }
 
-    LONGLONG remaining = g_nextFrameTime - now.QuadPart;
+    return g_nextFrameTime - now;
+}
+
+static void DoFrameLimit_HighRes(void) {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+
+    LONGLONG remaining = AdvanceFrameSchedule(now.QuadPart);
 
     if (remaining > g_busywaitMargin) {
         LARGE_INTEGER dueTime;
@@ -165,20 +171,7 @@ static void DoFrameLimit_Fallback(void) {
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
 
-    if (g_nextFrameTime == 0) {
-        g_nextFrameTime = now.QuadPart;
-        return;
-    }
-
-    g_nextFrameTime += g_targetFrameTicks;
-
-    // 1フレーム超の遅れは負債を赦免して now に再アンカー
-    // (now + T にすると、遅延したフレームの直後に丸1フレーム余計に待ってしまう)
-    if (g_nextFrameTime + g_targetFrameTicks < now.QuadPart) {
-        g_nextFrameTime = now.QuadPart;
-    }
-
-    LONGLONG remaining = g_nextFrameTime - now.QuadPart;
+    LONGLONG remaining = AdvanceFrameSchedule(now.QuadPart);
 
     double remainingMs = (double)remaining * 1000.0 / (double)g_freq.QuadPart;
     if (remainingMs > SLEEP_MARGIN_MS) {
@@ -272,14 +265,14 @@ __declspec(dllexport) IDirect3D8* WINAPI Wrapper_Direct3DCreate8(UINT SDKVersion
 
 BOOL WINAPI DllMain(HINSTANCE hInst, DWORD reason, LPVOID reserved) {
     (void)hInst;
-    (void)reserved;
 
     switch (reason) {
     case DLL_PROCESS_DETACH:
-        ShutdownFrameLimiter();
-        if (hRealD3D8) {
-            FreeLibrary(hRealD3D8);
-            hRealD3D8 = NULL;
+        // プロセス終了時 (reserved != NULL) はOSが全リソースを回収するため後始末は不要。
+        // DllMain内でのFreeLibraryはローダーロックのデッドロックを招きうるため呼ばない。
+        // そのため hRealD3D8 は解放せず意図的に保持する。
+        if (reserved == NULL) {
+            ShutdownFrameLimiter();
         }
         break;
     }
